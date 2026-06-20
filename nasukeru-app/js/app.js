@@ -3,6 +3,8 @@ var currentStrokeIdx = 0;
 var strokeTemplates = [];
 var quickTemplates = [];
 var restOptions = [];
+var defaultKeywords = ["脳梗塞","脳卒中","stroke"];
+var allKw = defaultKeywords.slice();
 
 // ── Quick list ──
 function buildQuickList() {
@@ -10,7 +12,10 @@ function buildQuickList() {
   list.innerHTML = "";
   quickTemplates.forEach(function(q) {
     var el = document.createElement("div"); el.className = "qitem";
-    el.innerHTML = '<span class="qi-dot"></span><span class="qi-name">'+q.label+'</span><span class="qi-tag">'+q.sub+'</span>';
+    var dot = document.createElement("span"); dot.className = "qi-dot";
+    var name = document.createElement("span"); name.className = "qi-name"; name.textContent = q.label;
+    var tag = document.createElement("span"); tag.className = "qi-tag"; tag.textContent = q.sub;
+    el.appendChild(dot); el.appendChild(name); el.appendChild(tag);
     el.addEventListener("click", function() {
       document.getElementById("si").value = q.label;
       showStroke();
@@ -22,22 +27,30 @@ function buildQuickList() {
 // ── Autocomplete ──
 var inp = document.getElementById("si");
 var acd = document.getElementById("acd");
-var allKw = ["脳梗塞","脳卒中","stroke"];
 
-function hilight(txt, q) {
+function appendHighlightedText(parent, txt, q) {
   var i = txt.toLowerCase().indexOf(q.toLowerCase());
-  if (i < 0) return txt;
-  return txt.slice(0,i) + '<span class="ahi">'+txt.slice(i,i+q.length)+'</span>' + txt.slice(i+q.length);
+  if (i < 0) {
+    parent.textContent = txt;
+    return;
+  }
+  parent.appendChild(document.createTextNode(txt.slice(0, i)));
+  var mark = document.createElement("span"); mark.className = "ahi"; mark.textContent = txt.slice(i, i + q.length);
+  parent.appendChild(mark);
+  parent.appendChild(document.createTextNode(txt.slice(i + q.length)));
 }
+
 function showAC(q) {
   if (!q) { acd.classList.remove("show"); return; }
   var ms = allKw.filter(function(k){ return k.toLowerCase().includes(q.toLowerCase()); }).slice(0,6);
   acd.innerHTML = "";
   ms.forEach(function(k) {
     var el = document.createElement("div"); el.className = "aci";
-    el.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>'
-      + '<span>'+hilight(k,q)+'</span>'
-      + '<span class="acb" style="background:var(--neul);color:var(--neu)">専用テンプレ</span>';
+    var icon = document.createElement("span"); icon.textContent = "⌕";
+    var label = document.createElement("span"); appendHighlightedText(label, k, q);
+    var badge = document.createElement("span"); badge.className = "acb"; badge.textContent = "専用テンプレ";
+    badge.style.background = "var(--neul)"; badge.style.color = "var(--neu)";
+    el.appendChild(icon); el.appendChild(label); el.appendChild(badge);
     el.addEventListener("mousedown", function(){ inp.value=k; acd.classList.remove("show"); showStroke(); });
     acd.appendChild(el);
   });
@@ -60,7 +73,7 @@ inp.addEventListener("keydown",function(e){
 function handleEnter() {
   acd.classList.remove("show");
   var q = inp.value.trim(); if (!q) return;
-  if (["脳梗塞","脳卒中","stroke"].includes(q)) showStroke();
+  if (allKw.some(function(k){ return k.toLowerCase() === q.toLowerCase(); })) showStroke();
   else toast("登録済みテンプレートを選択してください","#c05621");
 }
 
@@ -252,12 +265,61 @@ function toast(msg, color) {
 
 document.getElementById("cov").addEventListener("click", function(e){ if(e.target===e.currentTarget) closeCov(); });
 
+function clearNode(node) {
+  while (node.firstChild) node.removeChild(node.firstChild);
+}
+
+function showInitError() {
+  var empty = document.getElementById("empty");
+  var target = document.getElementById("ta");
+  empty.style.display = "block";
+  target.innerHTML = "";
+  clearNode(empty);
+
+  var icon = document.createElement("div"); icon.className = "ei"; icon.textContent = "!";
+  var title = document.createElement("div"); title.className = "et"; title.textContent = "テンプレートを読み込めませんでした";
+  var body = document.createElement("div"); body.className = "es"; body.textContent = "サーバー起動とDB初期化の状態を確認してください";
+  empty.appendChild(icon); empty.appendChild(title); empty.appendChild(body);
+  toast("テンプレートを読み込めませんでした", "#c05621");
+}
+
+function uniqueList(items) {
+  var seen = {};
+  return items.filter(function(item) {
+    if (!item || seen[item]) return false;
+    seen[item] = true;
+    return true;
+  });
+}
+
+async function loadSearchKeywords() {
+  var apiKeywords = [];
+  try {
+    apiKeywords = await getSearchKeywords();
+  } catch (err) {
+    console.warn("search keywords fallback", err);
+  }
+  allKw = uniqueList(
+    apiKeywords
+      .concat(defaultKeywords)
+      .concat(quickTemplates.map(function(q){ return q.label; }))
+      .concat(strokeTemplates.map(function(st){ return st.label; }))
+      .concat(strokeTemplates.map(function(st){ return st.full; }))
+  );
+}
+
 // Init
 async function initApp() {
-  strokeTemplates = await getTemplates();
-  quickTemplates = await getQuickTemplates();
-  restOptions = await getRestOptions();
-  buildQuickList();
+  try {
+    strokeTemplates = await getTemplates();
+    quickTemplates = await getQuickTemplates();
+    restOptions = await getRestOptions();
+    await loadSearchKeywords();
+    buildQuickList();
+  } catch (err) {
+    console.error(err);
+    showInitError();
+  }
 }
 
 initApp();

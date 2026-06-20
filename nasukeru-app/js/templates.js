@@ -17,3 +17,7 @@ async function getQuickTemplates() {
 async function getRestOptions() {
   return getJson("/api/rest-options");
 }
+
+async function getSearchKeywords() {
+  return getJson("/api/search-keywords");
+}

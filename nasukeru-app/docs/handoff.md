@@ -138,13 +138,15 @@
 
 ### 3.1 デモ用途
 
-現在のHTMLは単一ファイルのデモ。
+現在の画面は静的HTML/CSS/JSをFlaskから配信するデモ。
 
-テンプレート定義はJavaScript内の `STROKE_TYPES` にハードコードされている。
+テンプレート定義はSQLiteに保存し、`js/templates.js` のAPI境界から読み込む。
 
 ### 3.2 永続化なし
 
-入力内容、テンプレート、ログは保存しない。
+入力内容とログは保存しない。
+
+テンプレート本体、安静度選択肢、クイックリスト、検索候補はSQLiteに保存する。
 
 リロードすると入力内容は消える。
 
@@ -488,13 +490,22 @@ nasukeru-app/
 
 API例:
 
-- `GET /templates`
-- `GET /templates/:id`
-- `POST /templates`
-- `POST /templates/:id/versions`
-- `POST /templates/:id/delete`
-- `POST /templates/:id/restore`
-- `GET /templates/:id/logs`
+実装済み:
+
+- `GET /api/health`
+- `GET /api/templates`
+- `GET /api/templates/:id`
+- `GET /api/quick-templates`
+- `GET /api/rest-options`
+- `GET /api/search-keywords`
+
+今後の候補:
+
+- `POST /api/templates`
+- `POST /api/templates/:id/versions`
+- `POST /api/templates/:id/delete`
+- `POST /api/templates/:id/restore`
+- `GET /api/templates/:id/logs`
 
 ### Phase 4: DB保存
 

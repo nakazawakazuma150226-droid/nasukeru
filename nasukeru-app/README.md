@@ -2,7 +2,7 @@
 
 看護記録テンプレート入力支援アプリのデモです。
 
-現状は、登録済みテンプレートを選択し、観察項目を入力して、看護記録向けの文章をコピー出力する機能に絞っています。
+登録済みテンプレートを選択し、観察項目を入力して、看護記録向けの文章をコピー出力する機能に絞っています。現在はテンプレート定義を SQLite に保存し、Flask API 経由で読み込む構成です。
 
 ## 現在の方針
 
@@ -11,6 +11,7 @@
 - テンプレートの初期値は空欄
 - コピー前に重要項目の未入力を警告する
 - 警告があってもコピーは止めない
+- テンプレート本体は SQLite から読み込む
 
 ## ファイル構成
 
@@ -18,6 +19,7 @@
 nasukeru-app/
   index.html
   README.md
+  requirements.txt
   .gitignore
   assets/
     nasukeru-icon.jpg
@@ -30,6 +32,10 @@ nasukeru-app/
     validation.js
     copy-format.js
     app.js
+  server/
+    app.py
+    init_db.py
+    nasukeru.db        # ローカル生成。Git管理対象外
 ```
 
 ## 各ファイルの役割
@@ -42,8 +48,7 @@ nasukeru-app/
   - レイアウト、見た目、レスポンシブ対応
 
 - `js/templates.js`
-  - 現在のローカルテンプレート定義
-  - 将来DB/API連携に差し替える境界
+  - Flask API からテンプレート、クイックリスト、安静度選択肢を取得する境界
 
 - `js/validation.js`
   - 未入力警告の判定と表示
@@ -55,73 +60,96 @@ nasukeru-app/
 - `js/app.js`
   - 画面生成、検索、タブ切り替え、イベント処理
 
+- `server/init_db.py`
+  - SQLite DBを作成し、足りないテーブルと初期テンプレートデータを補う
+  - 既存テーブルは削除しない
+
+- `server/app.py`
+  - Flaskで画面とAPIを配信する
+  - 現在のAPI:
+    - `GET /api/health`
+    - `GET /api/templates`
+    - `GET /api/templates/<id>`
+    - `GET /api/quick-templates`
+    - `GET /api/rest-options`
+    - `GET /api/search-keywords`
+
 - `docs/handoff.md`
   - 現状仕様、将来DB設計、監査ログ設計、実装フェーズの引継ぎメモ
 
+## セットアップ
+
+Python 3.10 以降を使用します。
+
+```bash
+pip install -r requirements.txt
+python server/init_db.py
+```
+
+Windowsで `py` ランチャーを使う場合:
+
+```powershell
+py -3.10 -m pip install -r requirements.txt
+py -3.10 server\init_db.py
+```
+
 ## 動かし方
 
-`index.html` をブラウザで開くと動作します。
-
-ローカルサーバーで確認する場合:
+Flask サーバーを起動します。
 
 ```bash
-python -m http.server 8000
+python server/app.py
 ```
 
-その後、ブラウザで `http://localhost:8000` を開いてください。
+Windowsで `py` ランチャーを使う場合:
 
-## 将来のDB/API連携
-
-DB連携時は、まず `js/templates.js` の以下の関数をAPI呼び出しへ差し替える想定です。
-
-```js
-async function getTemplates() {
-  return STROKE_TYPES;
-}
-
-async function getQuickTemplates() {
-  return QUICK_LIST;
-}
-
-async function getRestOptions() {
-  return REST_OPTS;
-}
+```powershell
+py -3.10 server\app.py
 ```
 
-将来的なAPI例:
-
-- `GET /templates`
-- `GET /templates/:id`
-- `POST /templates`
-- `POST /templates/:id/versions`
-- `POST /templates/:id/delete`
-- `POST /templates/:id/restore`
-- `GET /templates/:id/logs`
-
-## GitHub登録時の推奨
-
-GitHubに登録する場合は、この `nasukeru-app` フォルダをリポジトリの初期状態にするのが分かりやすいです。
-
-初回コミット例:
+その後、ブラウザで以下を開いてください。
 
 ```text
-Initial split static demo
+http://127.0.0.1:8000/
 ```
 
-コマンド例:
+`index.html` を直接開く方法や `python -m http.server` では、`/api/...` が使えないため現在の構成では動作しません。
 
-```bash
-git init
-git add .
-git commit -m "Initial split static demo"
-git branch -M main
-git remote add origin <GitHubリポジトリURL>
-git push -u origin main
+開発時だけデバッグモードを有効にする場合:
+
+```powershell
+$env:NASUKERU_DEBUG = "1"
+py -3.10 server\app.py
 ```
 
-次のコミット候補:
+## DB/API構成
+
+現在は読み取り専用の最小APIです。テンプレート編集、承認、監査ログは未実装です。
+
+SQLite テーブル:
+
+- `templates`
+  - テンプレートの基本情報と入力項目JSONを保存
+
+- `quick_templates`
+  - 左側の専用テンプレート一覧を保存
+
+- `rest_options`
+  - 安静度の選択肢を保存
+
+- `search_keywords`
+  - 検索候補を保存
+
+## 運用前の注意
+
+現状はローカル試作用です。実運用前には少なくとも以下を対応してください。
+
+- DB変更履歴を管理できるマイグレーション方式を導入する
+- DBファイルをリポジトリ配下やOneDrive同期配下ではなく、運用用の保護された場所に置く
+
+## 次のコミット候補
 
 - テンプレートJSONスキーマ整理
 - 管理画面設計
-- DB/API連携
 - 監査ログ設計
+- 承認フロー設計

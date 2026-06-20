@@ -72,11 +72,33 @@ function defaultSchema() {
 }
 
 function normalizeDetailToSchema(detail) {
+  if (detail.schema) return detail.schema;
   return {
     vitals: detail.vitals || {},
     symptoms: detail.symptoms || {},
     neuro: detail.neuro || {},
     rest: typeof detail.rest === "string" ? detail.rest : ""
+  };
+}
+
+function defaultGenericSchema() {
+  return {
+    schemaFormat: "generic-v1",
+    sections: [
+      {
+        id: "basic",
+        label: "基本情報",
+        displayOrder: 1,
+        fields: [
+          {
+            id: "note",
+            label: "記載項目",
+            type: "text",
+            allowEmpty: true
+          }
+        ]
+      }
+    ]
   };
 }
 
@@ -141,6 +163,26 @@ function formSection(title) {
   return section;
 }
 
+function formSelect(label, name, value, choices) {
+  var wrap = document.createElement("label");
+  wrap.className = "admin-field";
+  var caption = document.createElement("span");
+  caption.textContent = label;
+  var select = document.createElement("select");
+  select.name = name;
+  select.className = "admin-input";
+  choices.forEach(function(choice) {
+    var option = document.createElement("option");
+    option.value = choice.value;
+    option.textContent = choice.label;
+    select.appendChild(option);
+  });
+  select.value = value || "";
+  wrap.appendChild(caption);
+  wrap.appendChild(select);
+  return wrap;
+}
+
 function collectText(form, name) {
   var el = form.elements[name];
   return el ? el.value.trim() : "";
@@ -197,6 +239,7 @@ function renderAdminRows() {
 
     var category = document.createElement("td");
     category.textContent = item.category;
+    if (item.schema_format) category.textContent += " / " + item.schema_format;
 
     var version = document.createElement("td");
     version.textContent = item.current_version_number ? "v" + item.current_version_number : "-";
@@ -242,12 +285,24 @@ function openCreateModal() {
   openModal("新規追加", "");
   var form = document.createElement("form");
   form.className = "admin-form";
+  var schemaFormatField = formSelect("schema形式", "schema_format", "stroke-v1", [
+    { value: "stroke-v1", label: "stroke-v1" },
+    { value: "generic-v1", label: "generic-v1" }
+  ]);
+  var genericSchemaField = formField("generic-v1 schema JSON", "generic_schema_json", JSON.stringify(defaultGenericSchema(), null, 2), { textarea: true, rows: 10 });
+  form.appendChild(schemaFormatField);
+  form.appendChild(genericSchemaField);
   form.appendChild(formField("ID", "id", "", { placeholder: "例: brainstem_custom" }));
   form.appendChild(formField("表示名", "label", "", { placeholder: "例: 脳幹" }));
   form.appendChild(formField("正式名称", "full", "", { placeholder: "例: 脳幹梗塞" }));
   form.appendChild(formField("分類", "category", "stroke"));
   form.appendChild(formField("追加理由", "change_reason", "", { textarea: true, rows: 3 }));
   $("admin-modal-body").appendChild(form);
+  function syncGenericSchemaField() {
+    genericSchemaField.style.display = form.elements.schema_format.value === "generic-v1" ? "" : "none";
+  }
+  form.elements.schema_format.addEventListener("change", syncGenericSchemaField);
+  syncGenericSchemaField();
 
   $("admin-modal-actions").appendChild(button("閉じる", "btn bg", closeModal));
   $("admin-modal-actions").appendChild(button("追加", "btn bp", async function() {
@@ -264,13 +319,22 @@ function openCreateModal() {
       setModalError("必須項目を入力してください。");
       return;
     }
+    var schema = defaultSchema();
+    if (collectText(form, "schema_format") === "generic-v1") {
+      try {
+        schema = JSON.parse(form.elements.generic_schema_json.value);
+      } catch (error) {
+        setModalError("generic-v1 schema JSONの形式を確認してください。");
+        return;
+      }
+    }
     try {
       await createTemplate({
         id: id,
         label: label,
         full: full,
         category: category,
-        schema: defaultSchema(),
+        schema: schema,
         change_reason: reason
       });
       closeModal();
@@ -359,6 +423,18 @@ function collectSchema(form) {
   return schema;
 }
 
+function appendGenericSchemaEditor(form, schema) {
+  form.appendChild(formField("generic-v1 schema JSON", "generic_schema_json", JSON.stringify(schema, null, 2), { textarea: true, rows: 16 }));
+}
+
+function collectGenericSchema(form) {
+  try {
+    return JSON.parse(form.elements.generic_schema_json.value);
+  } catch (error) {
+    throw new Error("generic-v1 schema JSONの形式を確認してください。");
+  }
+}
+
 async function openEditModal(item) {
   openModal("schema編集", item.label + " / " + item.full);
   var body = $("admin-modal-body");
@@ -368,14 +444,21 @@ async function openEditModal(item) {
   body.appendChild(loading);
   try {
     var detail = await getTemplateDetail(item.id);
-    var restOptions = await getRestOptionsCached();
+    var schema = normalizeDetailToSchema(detail);
+    var isGeneric = (detail.schema_format || schema.schemaFormat || "stroke-v1") === "generic-v1";
+    var restOptions = isGeneric ? [] : await getRestOptionsCached();
     clearNode(body);
     var form = document.createElement("form");
     form.className = "admin-form";
     form.appendChild(formField("表示名", "label", item.label, { readonly: true }));
     form.appendChild(formField("正式名称", "full", item.full, { readonly: true }));
     form.appendChild(formField("分類", "category", item.category, { readonly: true }));
-    appendSchemaFields(form, normalizeDetailToSchema(detail), restOptions);
+    form.appendChild(formField("schema形式", "schema_format", detail.schema_format || "stroke-v1", { readonly: true }));
+    if (isGeneric) {
+      appendGenericSchemaEditor(form, schema);
+    } else {
+      appendSchemaFields(form, schema, restOptions);
+    }
     form.appendChild(formField("変更概要", "change_summary", "", { textarea: true, rows: 2 }));
     form.appendChild(formField("変更理由", "change_reason", "", { textarea: true, rows: 3 }));
     body.appendChild(form);
@@ -389,9 +472,16 @@ async function openEditModal(item) {
         setModalError("変更概要と変更理由を入力してください。");
         return;
       }
+      var nextSchema;
+      try {
+        nextSchema = isGeneric ? collectGenericSchema(form) : collectSchema(form);
+      } catch (error) {
+        setModalError(error.message);
+        return;
+      }
       try {
         await createTemplateVersion(item.id, {
-          schema: collectSchema(form),
+          schema: nextSchema,
           change_summary: summary,
           change_reason: reason
         });

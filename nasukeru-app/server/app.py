@@ -10,6 +10,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from template_schema import (
     SchemaValidationError,
     normalize_schema,
+    schema_format as get_schema_format,
     validate_template_payload,
 )
 
@@ -58,6 +59,8 @@ def connect():
 def template_from_row(row):
     schema = json.loads(row["schema_json"])
     validate_db_template_schema(schema)
+    if get_schema_format(schema) != "stroke-v1":
+        raise TemplateSchemaError("normal template API supports stroke-v1 only")
     return {
         "id": row["id"],
         "label": row["label"],
@@ -164,7 +167,7 @@ def require_local_post_guard():
 
 
 def template_summary_from_row(row):
-    return {
+    summary = {
         "id": row["id"],
         "label": row["label"],
         "full": row["full"],
@@ -175,15 +178,30 @@ def template_summary_from_row(row):
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
+    if "schema_json" in row.keys():
+        schema = parse_json_value(row["schema_json"])
+        validate_db_template_schema(schema)
+        summary["schema_format"] = get_schema_format(schema)
+    return summary
 
 
 def fetch_template_summary(conn, template_id):
     row = conn.execute(
         """
-        SELECT id, label, full, category, is_active, status,
-               current_version_id, created_at, updated_at
-        FROM templates
-        WHERE id = ?
+        SELECT
+          t.id AS id,
+          t.label,
+          t.full,
+          t.category,
+          t.is_active,
+          t.status,
+          t.current_version_id,
+          t.created_at,
+          t.updated_at,
+          COALESCE(v.schema_json, t.schema_json) AS schema_json
+        FROM templates t
+        LEFT JOIN template_versions v ON v.id = t.current_version_id
+        WHERE t.id = ?
         """,
         (template_id,),
     ).fetchone()
@@ -211,6 +229,16 @@ def fetch_template_state(conn, template_id):
         """,
         (template_id,),
     ).fetchone()
+
+
+def admin_template_detail_from_row(row):
+    schema = parse_json_value(row["current_schema_json"])
+    validate_db_template_schema(schema)
+    return {
+        **template_summary_from_row(row),
+        "schema": schema,
+        "schema_format": get_schema_format(schema),
+    }
 
 
 def insert_audit_log(conn, template_id, version_id, action, acted_at, reason, before=None, after=None):
@@ -318,7 +346,13 @@ def get_templates():
             """,
             (1 if include_inactive else 0,),
         ).fetchall()
-    return jsonify([template_from_row(row) for row in rows])
+    templates = []
+    for row in rows:
+        schema = parse_json_value(row["schema_json"])
+        validate_db_template_schema(schema)
+        if get_schema_format(schema) == "stroke-v1":
+            templates.append(template_from_row(row))
+    return jsonify(templates)
 
 
 @app.get("/api/admin/templates")
@@ -336,7 +370,8 @@ def get_admin_templates():
               t.current_version_id,
               v.version_number AS current_version_number,
               t.created_at,
-              t.updated_at
+              t.updated_at,
+              COALESCE(v.schema_json, t.schema_json) AS schema_json
             FROM templates t
             LEFT JOIN template_versions v ON v.id = t.current_version_id
             ORDER BY t.display_order, t.label
@@ -351,6 +386,15 @@ def get_admin_templates():
             for row in rows
         ]
     )
+
+
+@app.get("/api/admin/templates/<template_id>")
+def get_admin_template(template_id):
+    with connect() as conn:
+        row = fetch_template_state(conn, template_id)
+    if row is None:
+        return jsonify({"error": "template not found"}), 404
+    return jsonify(admin_template_detail_from_row(row))
 
 
 @app.post("/api/templates")
@@ -609,6 +653,10 @@ def get_template(template_id):
             (template_id,),
         ).fetchone()
     if row is None:
+        return jsonify({"error": "template not found"}), 404
+    schema = parse_json_value(row["schema_json"])
+    validate_db_template_schema(schema)
+    if get_schema_format(schema) != "stroke-v1":
         return jsonify({"error": "template not found"}), 404
     return jsonify(template_from_row(row))
 

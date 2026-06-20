@@ -56,7 +56,7 @@ async function getAdminTemplates() {
 }
 
 async function getTemplateDetail(id) {
-  return getJson("/api/templates/" + encodeURIComponent(id));
+  return getJson("/api/admin/templates/" + encodeURIComponent(id));
 }
 
 async function getTemplateVersions(id) {

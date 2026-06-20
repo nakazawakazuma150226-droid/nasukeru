@@ -14,6 +14,7 @@ EXPECTED_GETS = [
     ("/js/field-meta.js", 200),
     ("/api/health", 200),
     ("/api/admin/templates", 200),
+    ("/api/admin/templates/mca", 200),
     ("/api/templates", 200),
     ("/api/templates/mca", 200),
     ("/api/templates/mca/versions", 200),
@@ -52,6 +53,28 @@ BASE_SCHEMA = {
         "other": "",
     },
     "rest": "",
+}
+
+
+GENERIC_SCHEMA = {
+    "schemaFormat": "generic-v1",
+    "sections": [
+        {
+            "id": "basic",
+            "label": "Basic",
+            "displayOrder": 1,
+            "fields": [
+                {"id": "procedure", "label": "Procedure", "type": "text", "allowEmpty": True},
+                {
+                    "id": "status",
+                    "label": "Status",
+                    "type": "select",
+                    "options": ["none", "present"],
+                    "allowEmpty": True,
+                },
+            ],
+        }
+    ],
 }
 
 
@@ -158,6 +181,61 @@ def run_write_tests(failures):
                 client.post("/api/templates/test_template/restore", json={"reason": "smoke restore again"}, headers=LOCAL_HEADERS),
                 409,
                 "POST /api/templates/test_template/restore again",
+                failures,
+            )
+
+            generic_payload = {
+                "id": "generic_test",
+                "label": "GEN",
+                "full": "Generic test",
+                "category": "procedure",
+                "schema": GENERIC_SCHEMA,
+                "change_reason": "smoke create generic",
+            }
+            assert_status(
+                client.post("/api/templates", json=generic_payload, headers=LOCAL_HEADERS),
+                201,
+                "POST /api/templates generic-v1",
+                failures,
+            )
+            generic_detail = client.get("/api/admin/templates/generic_test")
+            assert_status(generic_detail, 200, "GET /api/admin/templates/generic_test", failures)
+            assert_json_contains(
+                generic_detail,
+                lambda item: item["schema_format"] == "generic-v1" and item["schema"]["schemaFormat"] == "generic-v1",
+                "GET /api/admin/templates/generic_test returns generic schema",
+                failures,
+            )
+            assert_status(client.get("/api/templates/generic_test"), 404, "GET /api/templates/generic_test hidden from normal API", failures)
+            templates_response = client.get("/api/templates")
+            assert_status(templates_response, 200, "GET /api/templates after generic create", failures)
+            assert_json_contains(
+                templates_response,
+                lambda items: all(item["id"] != "generic_test" for item in items),
+                "GET /api/templates excludes generic-v1",
+                failures,
+            )
+
+            invalid_generic_payload = {
+                **generic_payload,
+                "id": "bad_generic",
+                "schema": {
+                    "schemaFormat": "generic-v1",
+                    "sections": [
+                        {
+                            "id": "basic",
+                            "label": "Basic",
+                            "fields": [
+                                {"id": "status", "label": "Status", "type": "select"}
+                            ],
+                        }
+                    ],
+                },
+            }
+            assert_status(
+                client.post("/api/templates", json=invalid_generic_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v1 invalid select options",
                 failures,
             )
     finally:

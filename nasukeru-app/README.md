@@ -28,6 +28,7 @@ nasukeru-app/
     styles.css
   docs/
     handoff.md
+    variable-template-migration-design.md
   js/
     templates.js
     field-meta.js
@@ -95,7 +96,7 @@ SQLite DB
 
 - `js/admin.js`
   - `/admin` の一覧表示、モーダル、画面バリデーション、管理API呼び出しを制御する
-  - テンプレート追加時は必須キー空文字の schema 雛形を生成する
+  - `stroke-v1` は既存の専用フォーム、`generic-v1` はJSON編集フォームで扱う
   - 編集時は現行 schema を読み込んで新バージョンとして保存する
 
 - `server/init_db.py`
@@ -113,6 +114,7 @@ SQLite DB
   - 現在のAPI:
     - `GET /api/health`
     - `GET /api/admin/templates`
+    - `GET /api/admin/templates/<id>`
     - `GET /api/templates`
     - `GET /api/templates/<id>`
     - `GET /api/templates/<id>/versions`
@@ -138,6 +140,20 @@ SQLite DB
 
 - `docs/handoff.md`
   - 現状仕様、将来DB設計、監査ログ設計、実装フェーズの引継ぎメモ
+
+- `docs/variable-template-migration-design.md`
+  - DSAなど新規項目を持つテンプレートに備えた可変schema設計
+  - 既存脳梗塞テンプレートを最終的に可変テンプレートへ移行する方針
+
+## 可変テンプレートの段階導入
+
+現在は `stroke-v1` と `generic-v1` を併存させる Phase 1 です。
+
+- `schemaFormat` が無い既存テンプレートは `stroke-v1` として扱う
+- `generic-v1` は `sections` と `fields` を持つ可変schemaとして保存できる
+- Phase 1 の `generic-v1` 対応は管理画面/APIが対象
+- 通常入力画面の `/api/templates` は医療安全上の影響を避けるため、現時点では `stroke-v1` のみ返す
+- `generic-v1` の通常画面表示とコピー出力は次フェーズで設計・実装する
 
 ## 現在のデータフロー
 

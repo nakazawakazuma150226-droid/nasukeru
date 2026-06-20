@@ -10,6 +10,10 @@ function closeCov() { document.getElementById("cov").classList.remove("show"); c
 function buildCopyText() {
   if (!currentCopyCard) return;
   renderMissingWarning(getMissingRequiredItems(currentCopyCard));
+  if (currentCopyCard.dataset.schemaFormat === "generic-v1") {
+    buildGenericCopyText();
+    return;
+  }
   var lines = [];
   var titleEl = currentCopyCard.querySelector(".stroke-title");
   var title = titleEl ? titleEl.textContent : "";
@@ -79,6 +83,28 @@ function buildCopyText() {
   var restEl = currentCopyCard.querySelector(".rest-opt.on");
   lines.push("安静度");
   lines.push(restEl ? restEl.textContent.trim() : "__");
+
+  document.getElementById("prev").textContent = lines.join("\n");
+}
+
+function buildGenericCopyText() {
+  var lines = [];
+  var titleEl = currentCopyCard.querySelector(".stroke-title");
+  var title = titleEl ? titleEl.textContent : "";
+  lines.push(title);
+  lines.push("");
+
+  var currentSection = "";
+  currentCopyCard.querySelectorAll(".generic-input").forEach(function(input) {
+    var section = input.dataset.sectionLabel || "";
+    if (section && section !== currentSection) {
+      if (currentSection) lines.push("");
+      lines.push(section);
+      currentSection = section;
+    }
+    var label = input.dataset.fieldLabel || "入力項目";
+    lines.push(label + "：" + (input.value || "__"));
+  });
 
   document.getElementById("prev").textContent = lines.join("\n");
 }

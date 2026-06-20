@@ -206,13 +206,20 @@ def run_write_tests(failures):
                 "GET /api/admin/templates/generic_test returns generic schema",
                 failures,
             )
-            assert_status(client.get("/api/templates/generic_test"), 404, "GET /api/templates/generic_test hidden from normal API", failures)
+            generic_normal_detail = client.get("/api/templates/generic_test")
+            assert_status(generic_normal_detail, 200, "GET /api/templates/generic_test", failures)
+            assert_json_contains(
+                generic_normal_detail,
+                lambda item: item["schema_format"] == "generic-v1" and item["schema"]["schemaFormat"] == "generic-v1",
+                "GET /api/templates/generic_test returns generic schema",
+                failures,
+            )
             templates_response = client.get("/api/templates")
             assert_status(templates_response, 200, "GET /api/templates after generic create", failures)
             assert_json_contains(
                 templates_response,
-                lambda items: all(item["id"] != "generic_test" for item in items),
-                "GET /api/templates excludes generic-v1",
+                lambda items: any(item["id"] == "generic_test" and item["schema_format"] == "generic-v1" for item in items),
+                "GET /api/templates includes generic-v1",
                 failures,
             )
 

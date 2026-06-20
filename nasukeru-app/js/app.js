@@ -1,6 +1,8 @@
 var currentCard = null;
 var currentStrokeIdx = 0;
+var templates = [];
 var strokeTemplates = [];
+var genericTemplates = [];
 var quickTemplates = [];
 var restOptions = [];
 var defaultKeywords = ["脳梗塞","脳卒中","stroke"];
@@ -18,7 +20,7 @@ function buildQuickList() {
     el.appendChild(dot); el.appendChild(name); el.appendChild(tag);
     el.addEventListener("click", function() {
       document.getElementById("si").value = q.label;
-      showStroke();
+      showTemplateForQuery(q.label);
     });
     list.appendChild(el);
   });
@@ -51,7 +53,7 @@ function showAC(q) {
     var badge = document.createElement("span"); badge.className = "acb"; badge.textContent = "専用テンプレ";
     badge.style.background = "var(--neul)"; badge.style.color = "var(--neu)";
     el.appendChild(icon); el.appendChild(label); el.appendChild(badge);
-    el.addEventListener("mousedown", function(){ inp.value=k; acd.classList.remove("show"); showStroke(); });
+    el.addEventListener("mousedown", function(){ inp.value=k; acd.classList.remove("show"); showTemplateForQuery(k); });
     acd.appendChild(el);
   });
   if (!ms.length) {
@@ -73,18 +75,39 @@ inp.addEventListener("keydown",function(e){
 function handleEnter() {
   acd.classList.remove("show");
   var q = inp.value.trim(); if (!q) return;
-  if (allKw.some(function(k){ return k.toLowerCase() === q.toLowerCase(); })) showStroke();
+  if (allKw.some(function(k){ return k.toLowerCase() === q.toLowerCase(); })) showTemplateForQuery(q);
   else toast("登録済みテンプレートを選択してください","#c05621");
 }
 
+function schemaFormat(template) {
+  return template.schema_format || (template.schema && template.schema.schemaFormat) || "stroke-v1";
+}
+
+function findTemplateByQuery(q, items) {
+  var lower = q.toLowerCase();
+  return items.find(function(item) {
+    return item.label.toLowerCase() === lower || item.full.toLowerCase() === lower;
+  });
+}
+
+function showTemplateForQuery(q) {
+  var generic = findTemplateByQuery(q, genericTemplates);
+  if (generic) {
+    showGeneric(generic);
+    return;
+  }
+  var stroke = findTemplateByQuery(q, strokeTemplates);
+  showStroke(stroke ? strokeTemplates.indexOf(stroke) : 0);
+}
+
 // ── Stroke template ──
-function showStroke() {
+function showStroke(initialIdx) {
   document.getElementById("empty").style.display = "none";
   document.getElementById("ta").innerHTML = "";
   var card = buildStrokeCard();
   document.getElementById("ta").appendChild(card);
   currentCard = card;
-  switchStrokeTab(0);
+  switchStrokeTab(initialIdx || 0);
 }
 
 function buildStrokeCard() {
@@ -119,6 +142,96 @@ function buildStrokeCard() {
 
   div.appendChild(tabs); div.appendChild(hdr); div.appendChild(body); div.appendChild(ftr);
   return div;
+}
+
+function showGeneric(template) {
+  document.getElementById("empty").style.display = "none";
+  document.getElementById("ta").innerHTML = "";
+  var card = buildGenericCard(template);
+  document.getElementById("ta").appendChild(card);
+  currentCard = card;
+}
+
+function buildGenericCard(template) {
+  var div = document.createElement("div");
+  div.className = "tc";
+  div.dataset.schemaFormat = "generic-v1";
+  div.dataset.templateId = template.id;
+
+  var hdr = document.createElement("div"); hdr.className = "tch";
+  var bdg = document.createElement("span"); bdg.className = "bdg bsav"; bdg.textContent = "可変";
+  var ttl = document.createElement("span"); ttl.className = "stroke-title"; ttl.textContent = template.full;
+  var sub = document.createElement("span"); sub.className = "stroke-sub"; sub.textContent = "generic-v1";
+  hdr.appendChild(bdg); hdr.appendChild(ttl); hdr.appendChild(sub);
+
+  var body = document.createElement("div"); body.className = "tcb";
+  renderGenericBody(body, template.schema);
+
+  var ftr = document.createElement("div"); ftr.className = "tcf";
+  var cpBtn = document.createElement("button"); cpBtn.className = "btn bp"; cpBtn.textContent = "コピー出力";
+  cpBtn.addEventListener("click", function(){ openCov(div); });
+  var clBtn = document.createElement("button"); clBtn.className = "btn bg"; clBtn.textContent = "クリア";
+  clBtn.addEventListener("click", function(){ showGeneric(template); });
+  ftr.appendChild(cpBtn); ftr.appendChild(clBtn);
+
+  div.appendChild(hdr); div.appendChild(body); div.appendChild(ftr);
+  return div;
+}
+
+function sortedByDisplayOrder(items) {
+  return (items || []).slice().sort(function(a, b) {
+    var ao = typeof a.displayOrder === "number" ? a.displayOrder : 9999;
+    var bo = typeof b.displayOrder === "number" ? b.displayOrder : 9999;
+    return ao - bo;
+  });
+}
+
+function renderGenericBody(body, schema) {
+  sortedByDisplayOrder(schema.sections).forEach(function(section) {
+    var sec = makeSec(section.label);
+    sortedByDisplayOrder(section.fields).forEach(function(field) {
+      sec.appendChild(makeGenericField(section, field));
+    });
+    body.appendChild(sec);
+  });
+}
+
+function makeGenericField(section, field) {
+  var row = document.createElement("div"); row.className = "nrow";
+  var lbl = document.createElement("div"); lbl.className = "nlabel"; lbl.textContent = field.label;
+  var input;
+  if (field.type === "textarea") {
+    input = document.createElement("textarea");
+    input.className = "nval generic-input";
+    input.rows = 2;
+  } else if (field.type === "select") {
+    input = document.createElement("select");
+    input.className = "nval generic-input";
+    var emptyOpt = document.createElement("option");
+    emptyOpt.value = "";
+    emptyOpt.textContent = "";
+    input.appendChild(emptyOpt);
+    (field.options || []).forEach(function(opt) {
+      var option = document.createElement("option");
+      option.value = opt;
+      option.textContent = opt;
+      input.appendChild(option);
+    });
+  } else {
+    input = document.createElement("input");
+    input.type = "text";
+    input.className = "nval generic-input";
+  }
+  input.value = "";
+  input.placeholder = field.placeholder || "";
+  input.dataset.sectionId = section.id;
+  input.dataset.sectionLabel = section.label;
+  input.dataset.fieldId = field.id;
+  input.dataset.fieldLabel = field.label;
+  input.dataset.requiredWarning = field.requiredWarning ? "true" : "false";
+  row.appendChild(lbl);
+  row.appendChild(input);
+  return row;
 }
 
 function switchStrokeTab(idx) {
@@ -305,13 +418,17 @@ async function loadSearchKeywords() {
       .concat(quickTemplates.map(function(q){ return q.label; }))
       .concat(strokeTemplates.map(function(st){ return st.label; }))
       .concat(strokeTemplates.map(function(st){ return st.full; }))
+      .concat(genericTemplates.map(function(st){ return st.label; }))
+      .concat(genericTemplates.map(function(st){ return st.full; }))
   );
 }
 
 // Init
 async function initApp() {
   try {
-    strokeTemplates = await getTemplates();
+    templates = await getTemplates();
+    strokeTemplates = templates.filter(function(template){ return schemaFormat(template) === "stroke-v1"; });
+    genericTemplates = templates.filter(function(template){ return schemaFormat(template) === "generic-v1"; });
     quickTemplates = await getQuickTemplates();
     restOptions = await getRestOptions();
     await loadSearchKeywords();

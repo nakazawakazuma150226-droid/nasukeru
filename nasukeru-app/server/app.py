@@ -72,6 +72,24 @@ def template_from_row(row):
     }
 
 
+def normal_template_from_row(row):
+    schema = json.loads(row["schema_json"])
+    validate_db_template_schema(schema)
+    fmt = get_schema_format(schema)
+    if fmt == "stroke-v1":
+        return {
+            **template_from_row(row),
+            "schema_format": fmt,
+        }
+    return {
+        "id": row["id"],
+        "label": row["label"],
+        "full": row["full"],
+        "schema_format": fmt,
+        "schema": schema,
+    }
+
+
 def parse_json_value(value):
     if value is None:
         return None
@@ -346,13 +364,7 @@ def get_templates():
             """,
             (1 if include_inactive else 0,),
         ).fetchall()
-    templates = []
-    for row in rows:
-        schema = parse_json_value(row["schema_json"])
-        validate_db_template_schema(schema)
-        if get_schema_format(schema) == "stroke-v1":
-            templates.append(template_from_row(row))
-    return jsonify(templates)
+    return jsonify([normal_template_from_row(row) for row in rows])
 
 
 @app.get("/api/admin/templates")
@@ -656,9 +668,7 @@ def get_template(template_id):
         return jsonify({"error": "template not found"}), 404
     schema = parse_json_value(row["schema_json"])
     validate_db_template_schema(schema)
-    if get_schema_format(schema) != "stroke-v1":
-        return jsonify({"error": "template not found"}), 404
-    return jsonify(template_from_row(row))
+    return jsonify(normal_template_from_row(row))
 
 
 @app.get("/api/templates/<template_id>/versions")

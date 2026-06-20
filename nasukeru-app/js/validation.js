@@ -1,4 +1,7 @@
 function getMissingRequiredItems(card) {
+  if (card.dataset.schemaFormat === "generic-v1") {
+    return getMissingGenericRequiredItems(card);
+  }
   var missing = [];
   var vitals = card.querySelectorAll(".vinput");
   vitals.forEach(function(v) {
@@ -25,6 +28,16 @@ function getMissingRequiredItems(card) {
   var restEl = card.querySelector(".rest-opt.on");
   if (!restEl) missing.push("安静度");
 
+  return missing;
+}
+
+function getMissingGenericRequiredItems(card) {
+  var missing = [];
+  card.querySelectorAll(".generic-input").forEach(function(input) {
+    if (input.dataset.requiredWarning === "true" && !input.value.trim()) {
+      missing.push(input.dataset.fieldLabel || "入力項目");
+    }
+  });
   return missing;
 }
 

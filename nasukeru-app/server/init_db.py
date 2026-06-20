@@ -151,6 +151,12 @@ def validate_seed_data():
 def ensure_schema(conn):
     conn.executescript(
         """
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+          version TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS templates (
           id TEXT PRIMARY KEY,
           label TEXT NOT NULL,
@@ -241,6 +247,16 @@ def ensure_column(conn, table, column, definition):
     columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
     if column not in columns:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def record_migration(conn, version, name, now):
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO schema_migrations (version, name, applied_at)
+        VALUES (?, ?, ?)
+        """,
+        (version, name, now),
+    )
 
 
 def exists(conn, query, params):
@@ -382,6 +398,9 @@ def main():
     db_path = get_db_path()
     with connect(db_path) as conn:
         ensure_schema(conn)
+        record_migration(conn, "001", "initial sqlite template api", now)
+        record_migration(conn, "002", "versioned template schema", now)
+        record_migration(conn, "003", "read-only operational APIs", now)
         seed_templates(conn, now)
         migrate_template_versions(conn, now)
         seed_rest_options(conn)

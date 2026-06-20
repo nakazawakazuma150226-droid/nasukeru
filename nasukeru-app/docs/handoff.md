@@ -144,6 +144,8 @@
 
 DB構造は `templates` が基本情報と現在バージョンを持ち、`template_versions` が入力項目JSONをバージョンとして保持する。変更履歴用に `template_audit_logs` も用意済み。
 
+DB構造変更の適用状況は `schema_migrations` に記録する。
+
 DBファイルは既定では `server/nasukeru.db`。運用配置を変える場合は `NASUKERU_DB_PATH` で指定する。
 
 ### 3.2 永続化なし
@@ -500,9 +502,12 @@ API例:
 - `GET /api/templates`
 - `GET /api/templates/:id`
 - `GET /api/templates/:id/versions`
+- `GET /api/templates/:id/versions/:version_id`
+- `GET /api/templates/:id/logs`
 - `GET /api/quick-templates`
 - `GET /api/rest-options`
 - `GET /api/search-keywords`
+- `GET /api/migrations`
 
 検証用:
 

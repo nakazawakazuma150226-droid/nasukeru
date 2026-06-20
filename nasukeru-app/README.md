@@ -35,8 +35,30 @@ nasukeru-app/
   server/
     app.py
     init_db.py
+    smoke_test.py
     nasukeru.db        # ローカル生成。Git管理対象外
 ```
+
+## ディレクトリ構成の考え方
+
+このアプリは、画面側とAPI側を分けた小さな構成です。
+
+```text
+ブラウザ
+  ↓
+index.html / css / js
+  ↓ fetch
+Flask API
+  ↓ sqlite3
+SQLite DB
+```
+
+- 画面表示と入力操作は `index.html`, `css/`, `js/` が担当する
+- テンプレートや選択肢などのマスターデータは SQLite に置く
+- `js/templates.js` はAPI呼び出しの境界として残し、画面本体の `js/app.js` がDB構造を直接知らないようにする
+- `server/` はAPI、DB初期化、スモークテストを置くバックエンド領域
+- `server/nasukeru.db` はローカル生成物なのでGitには入れない
+- Flaskの静的配信は `index.html`, `assets/`, `css/`, `js/` のみに限定し、`server/` や `.gitignore` はブラウザから取得できないようにする
 
 ## 各ファイルの役割
 
@@ -63,6 +85,8 @@ nasukeru-app/
 - `server/init_db.py`
   - SQLite DBを作成し、足りないテーブルと初期テンプレートデータを補う
   - 既存テーブルは削除しない
+  - 既存テンプレートに `template_versions` がない場合は version 1 として移行する
+  - DB構造変更の適用状況を `schema_migrations` に記録する
 
 - `server/app.py`
   - Flaskで画面とAPIを配信する
@@ -71,12 +95,56 @@ nasukeru-app/
     - `GET /api/templates`
     - `GET /api/templates/<id>`
     - `GET /api/templates/<id>/versions`
+    - `GET /api/templates/<id>/versions/<version_id>`
+    - `GET /api/templates/<id>/logs`
     - `GET /api/quick-templates`
     - `GET /api/rest-options`
     - `GET /api/search-keywords`
+    - `GET /api/migrations`
+
+- `server/smoke_test.py`
+  - 主要APIが期待したステータスを返すか確認する
+  - `server/` や `.gitignore` が公開されていないことも確認する
 
 - `docs/handoff.md`
   - 現状仕様、将来DB設計、監査ログ設計、実装フェーズの引継ぎメモ
+
+## 現在のデータフロー
+
+初期表示時:
+
+```text
+js/app.js
+  ↓
+getTemplates() / getQuickTemplates() / getRestOptions() / getSearchKeywords()
+  ↓
+js/templates.js
+  ↓
+/api/templates
+/api/quick-templates
+/api/rest-options
+/api/search-keywords
+  ↓
+server/app.py
+  ↓
+server/nasukeru.db
+```
+
+テンプレート選択後:
+
+```text
+DB由来のテンプレートJSON
+  ↓
+js/app.js が入力フォームを生成
+  ↓
+利用者が観察項目を入力
+  ↓
+js/copy-format.js がコピー文を生成
+  ↓
+クリップボードへコピー
+```
+
+入力内容はDBへ保存しません。DBに保存するのはテンプレート定義、検索候補、選択肢などのマスターデータだけです。
 
 ## セットアップ
 
@@ -148,16 +216,25 @@ http://127.0.0.1:8000/api/health
 
 現在は読み取り専用の最小APIです。テンプレート編集、承認、監査ログは未実装です。
 
-SQLite テーブル:
+### SQLite テーブル
+
+- `schema_migrations`
+  - 適用済みDB構造変更の記録を保存
+  - `version`, `name`, `applied_at` を持つ
 
 - `templates`
   - テンプレートの基本情報、公開状態、現在バージョンへの参照を保存
+  - 通常画面の一覧表示対象は `is_active = 1`
+  - `current_version_id` が現在利用する `template_versions` を指す
 
 - `template_versions`
   - テンプレートの入力項目JSONと変更理由をバージョンとして保存
+  - 今後テンプレート編集を追加する場合は、既存行を直接上書きせず新しいバージョンを作る想定
 
 - `template_audit_logs`
   - テンプレートに対する移行・更新・削除などの操作履歴を保存
+  - 現時点では初期移行ログを保存している
+  - 今後の編集・削除・復元でもここに履歴を残す想定
 
 - `quick_templates`
   - 左側の専用テンプレート一覧を保存
@@ -168,12 +245,67 @@ SQLite テーブル:
 - `search_keywords`
   - 検索候補を保存
 
+### テンプレート読み込みの考え方
+
+通常画面の `GET /api/templates` は、`templates.current_version_id` が指す `template_versions.schema_json` を優先して返します。
+
+互換用に `templates.schema_json` も残していますが、今後は `template_versions` を正とする想定です。
+
+```text
+templates
+  id = mca
+  current_version_id = 1
+    ↓
+template_versions
+  id = 1
+  template_id = mca
+  version_number = 1
+  schema_json = 入力項目定義
+```
+
+APIの返却形は既存画面に合わせて維持しています。
+
+```json
+{
+  "id": "mca",
+  "label": "MCA",
+  "full": "MCA領域梗塞（中大脳動脈）",
+  "vitals": {},
+  "symptoms": {},
+  "neuro": {},
+  "rest": ""
+}
+```
+
+### API一覧
+
+画面用:
+
+- `GET /api/templates`
+- `GET /api/templates/<id>`
+- `GET /api/quick-templates`
+- `GET /api/rest-options`
+- `GET /api/search-keywords`
+
+確認・運用補助用:
+
+- `GET /api/health`
+- `GET /api/migrations`
+- `GET /api/templates/<id>/versions`
+- `GET /api/templates/<id>/versions/<version_id>`
+- `GET /api/templates/<id>/logs`
+
+現在は読み取り専用です。テンプレート追加・編集・削除APIはまだありません。
+
 ## 運用前の注意
 
 現状はローカル試作用です。実運用前には少なくとも以下を対応してください。
 
-- DB変更履歴を管理できるマイグレーション方式を導入する
+- 本格的なマイグレーション管理を導入する
 - DBファイルをリポジトリ配下やOneDrive同期配下ではなく、運用用の保護された場所に置く
+- 本番用WSGIサーバーで起動する
+- DBバックアップと復旧手順を決める
+- テンプレート編集を追加する前に、権限・監査ログ・承認方針を決める
 
 ## 次のコミット候補
 

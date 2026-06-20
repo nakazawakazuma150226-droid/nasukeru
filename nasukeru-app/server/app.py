@@ -49,6 +49,49 @@ def template_from_row(row):
     }
 
 
+def parse_json_value(value):
+    if value is None:
+        return None
+    return json.loads(value)
+
+
+def version_from_row(row, include_schema=False):
+    version = {
+        "id": row["id"],
+        "template_id": row["template_id"],
+        "version_number": row["version_number"],
+        "change_summary": row["change_summary"],
+        "change_reason": row["change_reason"],
+        "created_by": row["created_by"],
+        "created_at": row["created_at"],
+        "approved_by": row["approved_by"],
+        "approved_at": row["approved_at"],
+    }
+    if include_schema:
+        schema = parse_json_value(row["schema_json"])
+        validate_template_schema(schema)
+        version["schema"] = schema
+        version["copy_format"] = parse_json_value(row["copy_format_json"])
+    return version
+
+
+def audit_log_from_row(row):
+    return {
+        "id": row["id"],
+        "template_id": row["template_id"],
+        "version_id": row["version_id"],
+        "action": row["action"],
+        "actor_id": row["actor_id"],
+        "actor_name": row["actor_name"],
+        "acted_at": row["acted_at"],
+        "before": parse_json_value(row["before_json"]),
+        "after": parse_json_value(row["after_json"]),
+        "diff": parse_json_value(row["diff_json"]),
+        "reason": row["reason"],
+        "client_info": row["client_info"],
+    }
+
+
 def validate_template_schema(schema):
     required = ("vitals", "symptoms", "neuro", "rest")
     missing = [key for key in required if key not in schema]
@@ -150,7 +193,34 @@ def get_template_versions(template_id):
             """
             SELECT
               id,
+              template_id,
               version_number,
+              change_summary,
+              change_reason,
+              created_by,
+              created_at,
+              approved_by,
+            approved_at
+            FROM template_versions
+            WHERE template_id = ?
+            ORDER BY version_number DESC
+            """,
+            (template_id,),
+        ).fetchall()
+    return jsonify([version_from_row(row) for row in rows])
+
+
+@app.get("/api/templates/<template_id>/versions/<int:version_id>")
+def get_template_version(template_id, version_id):
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT
+              id,
+              template_id,
+              version_number,
+              schema_json,
+              copy_format_json,
               change_summary,
               change_reason,
               created_by,
@@ -158,12 +228,46 @@ def get_template_versions(template_id):
               approved_by,
               approved_at
             FROM template_versions
+            WHERE template_id = ? AND id = ?
+            """,
+            (template_id, version_id),
+        ).fetchone()
+    if row is None:
+        return jsonify({"error": "template version not found"}), 404
+    return jsonify(version_from_row(row, include_schema=True))
+
+
+@app.get("/api/templates/<template_id>/logs")
+def get_template_logs(template_id):
+    with connect() as conn:
+        template = conn.execute(
+            "SELECT id FROM templates WHERE id = ? AND is_active = 1",
+            (template_id,),
+        ).fetchone()
+        if template is None:
+            return jsonify({"error": "template not found"}), 404
+        rows = conn.execute(
+            """
+            SELECT
+              id,
+              template_id,
+              version_id,
+              action,
+              actor_id,
+              actor_name,
+              acted_at,
+              before_json,
+              after_json,
+              diff_json,
+              reason,
+              client_info
+            FROM template_audit_logs
             WHERE template_id = ?
-            ORDER BY version_number DESC
+            ORDER BY acted_at DESC, id DESC
             """,
             (template_id,),
         ).fetchall()
-    return jsonify([dict(row) for row in rows])
+    return jsonify([audit_log_from_row(row) for row in rows])
 
 
 @app.get("/api/rest-options")
@@ -199,6 +303,19 @@ def get_search_keywords():
             """
         ).fetchall()
     return jsonify([row["keyword"] for row in rows])
+
+
+@app.get("/api/migrations")
+def get_migrations():
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT version, name, applied_at
+            FROM schema_migrations
+            ORDER BY version
+            """
+        ).fetchall()
+    return jsonify([dict(row) for row in rows])
 
 
 @app.get("/api/health")

@@ -4,7 +4,12 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from template_schema import SchemaValidationError, normalize_schema, validate_template_id
+from template_schema import (
+    SchemaValidationError,
+    normalize_copy_format,
+    normalize_schema,
+    validate_template_id,
+)
 
 
 DEFAULT_DB_PATH = Path(__file__).with_name("nasukeru.db")
@@ -111,6 +116,37 @@ SEARCH_KEYWORDS = [
     {"keyword": "stroke", "template_action": "stroke"},
 ]
 
+STROKE_EXTRA_FIELDS = {
+    "mca": [
+        {"id": "left_mouth_droop", "label": "左口角下垂", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "dysarthria", "label": "構音障害", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "left_sensory_dullness", "label": "左半身感覚鈍麻", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+    ],
+    "aca": [
+        {"id": "spontaneity_decrease", "label": "自発性低下", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "speech_amount_decrease", "label": "発語量低下", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "excretion", "label": "排泄", "type": "text", "allowEmpty": True, "placeholder": "例: 尿失禁にて経過"},
+    ],
+    "pca": [
+        {"id": "left_homonymous_hemianopia", "label": "左同名半盲", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "visual_impairment", "label": "視覚障害", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "left_sensory_dullness", "label": "左半身感覚鈍麻", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "dysarthria", "label": "構音障害", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+    ],
+    "lacunar": [
+        {"id": "mild_dysarthria", "label": "軽度構音障害", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "mild_facial_palsy", "label": "顔面麻痺軽度", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "sensory_disturbance", "label": "感覚障害", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+    ],
+    "brainstem": [
+        {"id": "horizontal_nystagmus_right_gaze", "label": "右方視時の水平性眼振", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "diplopia", "label": "複視", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "dysphagia", "label": "嚥下障害", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "dysarthria", "label": "構音障害", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "limb_ataxia", "label": "四肢失調", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+    ],
+}
+
 
 def get_db_path():
     return Path(os.environ.get("NASUKERU_DB_PATH", DEFAULT_DB_PATH)).expanduser()
@@ -139,10 +175,115 @@ def validate_template(template):
         raise ValueError(f"template {template.get('id', '<unknown>')} invalid: {error}") from error
 
 
+def generic_field(field_id, label, field_type="text", **extra):
+    field = {"id": field_id, "label": label, "type": field_type, "allowEmpty": True}
+    field.update(extra)
+    return field
+
+
+def build_generic_stroke_schema(template):
+    sections = [
+        {
+            "id": "vitals",
+            "label": "バイタル",
+            "displayOrder": 1,
+            "fields": [
+                generic_field("jcs", "JCS", requiredWarning=True),
+                generic_field("t", "T", unit="℃", requiredWarning=True),
+                generic_field("bp", "BP", unit="mmHg", requiredWarning=True),
+                generic_field("hr", "HR", requiredWarning=True),
+                generic_field("spo2", "SpO₂", unit="%", requiredWarning=True),
+            ],
+        },
+        {
+            "id": "symptoms",
+            "label": "症状",
+            "displayOrder": 2,
+            "fields": [
+                generic_field("headache", "頭痛"),
+                generic_field("dizzy", "めまい"),
+                generic_field("nausea", "嘔気"),
+            ],
+        },
+        {
+            "id": "neuro",
+            "label": "神経所見",
+            "displayOrder": 3,
+            "fields": [
+                generic_field("pupil", "瞳孔（左右）", placeholder="例: 2.5/2.5mm", requiredWarning=True),
+                generic_field("light", "対光反射", placeholder="例: あり", requiredWarning=True),
+                generic_field("eye", "眼球位置", placeholder="例: 正中位"),
+                generic_field("barre", "バレー徴候"),
+                generic_field("mingazzini", "ミンガッチー徴候"),
+                generic_field("nihss", "NIHSS（別紙記録参照）", requiredWarning=True),
+            ],
+        },
+        {
+            "id": "mmt",
+            "label": "MMT",
+            "displayOrder": 4,
+            "fields": [
+                generic_field("ru", "右上肢", requiredWarning=True),
+                generic_field("rl", "右下肢", requiredWarning=True),
+                generic_field("lu", "左上肢", requiredWarning=True),
+                generic_field("ll", "左下肢", requiredWarning=True),
+            ],
+        },
+        {
+            "id": "stroke_findings",
+            "label": f"{template['label']} 個別観察項目",
+            "displayOrder": 5,
+            "fields": STROKE_EXTRA_FIELDS[template["id"]],
+        },
+        {
+            "id": "rest",
+            "label": "安静度",
+            "displayOrder": 6,
+            "fields": [
+                generic_field("level", "安静度", "select", options=REST_OPTIONS, requiredWarning=True),
+            ],
+        },
+    ]
+    return normalize_schema({"schemaFormat": "generic-v1", "sections": sections})
+
+
+def build_generic_stroke_copy_format(template):
+    extra_lines = [
+        f"{field['label']}：{{{{stroke_findings.{field['id']}}}}}"
+        for field in STROKE_EXTRA_FIELDS[template["id"]]
+    ]
+    return normalize_copy_format(
+        {
+            "format": "text-v1",
+            "lines": [
+                template["full"],
+                "",
+                "JCS {{vitals.jcs}}",
+                "T：{{vitals.t}}℃、BP：{{vitals.bp}}mmHg、HR：{{vitals.hr}}、SpO₂：{{vitals.spo2}}％。",
+                "",
+                "頭痛：{{symptoms.headache}}",
+                "めまい：{{symptoms.dizzy}}",
+                "嘔気：{{symptoms.nausea}}",
+                "",
+                "瞳孔{{neuro.pupil}}、対光反射{{neuro.light}}、{{neuro.eye}}。",
+                "バレー徴候：{{neuro.barre}}",
+                "ミンガッチー徴候：{{neuro.mingazzini}}",
+                "MMT：右上肢{{mmt.ru}}、右下肢{{mmt.rl}}、左上肢{{mmt.lu}}、左下肢{{mmt.ll}}",
+                "NIHSS：{{neuro.nihss}}（別紙記録参照）",
+                *extra_lines,
+                "",
+                "安静度：{{rest.level}}",
+            ],
+        }
+    )
+
+
 def validate_seed_data():
     ids = set()
     for template in STROKE_TYPES:
         validate_template(template)
+        build_generic_stroke_schema(template)
+        build_generic_stroke_copy_format(template)
         if template["id"] in ids:
             raise ValueError(f"duplicate template id: {template['id']}")
         ids.add(template["id"])
@@ -365,6 +506,106 @@ def migrate_template_versions(conn, now):
         )
 
 
+def migration_applied(conn, version):
+    return exists(conn, "SELECT 1 FROM schema_migrations WHERE version = ?", (version,))
+
+
+def migrate_stroke_templates_to_generic(conn, now):
+    if migration_applied(conn, "004"):
+        return
+
+    for template in STROKE_TYPES:
+        row = conn.execute(
+            """
+            SELECT
+              t.id,
+              t.schema_json,
+              t.current_version_id,
+              COALESCE(v.schema_json, t.schema_json) AS current_schema_json,
+              v.copy_format_json AS current_copy_format_json
+            FROM templates t
+            LEFT JOIN template_versions v ON v.id = t.current_version_id
+            WHERE t.id = ?
+            """,
+            (template["id"],),
+        ).fetchone()
+        if row is None:
+            continue
+
+        current_schema = json.loads(row[3])
+        if current_schema.get("schemaFormat") == "generic-v1":
+            continue
+
+        schema = build_generic_stroke_schema(template)
+        copy_format = build_generic_stroke_copy_format(template)
+        schema_json = json.dumps(schema, ensure_ascii=False)
+        copy_format_json = json.dumps(copy_format, ensure_ascii=False)
+        version_number = conn.execute(
+            """
+            SELECT COALESCE(MAX(version_number), 0) + 1
+            FROM template_versions
+            WHERE template_id = ?
+            """,
+            (template["id"],),
+        ).fetchone()[0]
+        cursor = conn.execute(
+            """
+            INSERT INTO template_versions
+              (template_id, version_number, schema_json, copy_format_json,
+               change_summary, change_reason, created_by, created_at, approved_by, approved_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'system', ?, 'system', ?)
+            """,
+            (
+                template["id"],
+                version_number,
+                schema_json,
+                copy_format_json,
+                "Convert stroke template to generic-v1",
+                "Add region-specific observation fields without default patient values",
+                now,
+                now,
+            ),
+        )
+        version_id = cursor.lastrowid
+        conn.execute(
+            """
+            UPDATE templates
+            SET schema_json = ?, current_version_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (schema_json, version_id, now, template["id"]),
+        )
+        conn.execute(
+            """
+            INSERT INTO template_audit_logs
+              (template_id, version_id, action, actor_name, acted_at, before_json, after_json, reason)
+            VALUES (?, ?, 'migrate', 'system', ?, ?, ?, ?)
+            """,
+            (
+                template["id"],
+                version_id,
+                now,
+                json.dumps(
+                    {
+                        "schema": current_schema,
+                        "copy_format": json.loads(row[4]) if row[4] else None,
+                    },
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {
+                        "schema": schema,
+                        "copy_format": copy_format,
+                    },
+                    ensure_ascii=False,
+                ),
+                "Convert stroke-v1 to generic-v1 with region-specific observation fields",
+            ),
+        )
+
+    record_migration(conn, "004", "convert stroke templates to generic v1", now)
+
+
 def seed_rest_options(conn):
     for order, label in enumerate(REST_OPTIONS, start=1):
         if exists(conn, "SELECT 1 FROM rest_options WHERE label = ?", (label,)):
@@ -412,6 +653,7 @@ def main():
         record_migration(conn, "003", "read-only operational APIs", now)
         seed_templates(conn, now)
         migrate_template_versions(conn, now)
+        migrate_stroke_templates_to_generic(conn, now)
         seed_rest_options(conn)
         seed_quick_templates(conn)
         seed_search_keywords(conn)

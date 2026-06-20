@@ -79,12 +79,14 @@ def normal_template_from_row(row):
     if fmt == "stroke-v1":
         return {
             **template_from_row(row),
+            "category": row["category"] if "category" in row.keys() else "stroke",
             "schema_format": fmt,
         }
     return {
         "id": row["id"],
         "label": row["label"],
         "full": row["full"],
+        "category": row["category"] if "category" in row.keys() else "",
         "schema_format": fmt,
         "schema": schema,
         "copy_format": parse_json_value(row["copy_format_json"]) if "copy_format_json" in row.keys() else None,
@@ -359,6 +361,7 @@ def get_templates():
               t.id,
               t.label,
               t.full,
+              t.category,
               COALESCE(v.schema_json, t.schema_json) AS schema_json,
               v.copy_format_json AS copy_format_json
             FROM templates t
@@ -674,6 +677,7 @@ def get_template(template_id):
               t.id,
               t.label,
               t.full,
+              t.category,
               COALESCE(v.schema_json, t.schema_json) AS schema_json,
               v.copy_format_json AS copy_format_json
             FROM templates t

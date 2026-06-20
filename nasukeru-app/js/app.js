@@ -97,7 +97,16 @@ function showTemplateForQuery(q) {
     return;
   }
   var stroke = findTemplateByQuery(q, strokeTemplates);
-  showStroke(stroke ? strokeTemplates.indexOf(stroke) : 0);
+  if (strokeTemplates.length) {
+    showStroke(stroke ? strokeTemplates.indexOf(stroke) : 0);
+    return;
+  }
+  var genericStroke = genericTemplates.find(function(item){ return item.category === "stroke"; });
+  if (genericStroke) {
+    showGeneric(genericStroke);
+    return;
+  }
+  toast("登録済みテンプレートを選択してください", "#c05621");
 }
 
 // ── Stroke template ──

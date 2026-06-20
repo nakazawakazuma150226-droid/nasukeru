@@ -116,6 +116,20 @@ def run_write_tests(failures):
             init_db_main()
 
             client = app.test_client()
+            mca_response = client.get("/api/templates/mca")
+            assert_status(mca_response, 200, "GET /api/templates/mca after migration", failures)
+            assert_json_contains(
+                mca_response,
+                lambda item: item["schema_format"] == "generic-v1"
+                and any(
+                    section["id"] == "stroke_findings"
+                    and any(field["id"] == "left_mouth_droop" for field in section["fields"])
+                    for section in item["schema"]["sections"]
+                ),
+                "GET /api/templates/mca includes MCA-specific generic fields",
+                failures,
+            )
+
             create_payload = {
                 "id": "test_template",
                 "label": "TEST",

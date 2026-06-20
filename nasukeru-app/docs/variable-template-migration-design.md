@@ -549,6 +549,8 @@ current_version_id: v1 stroke-v1
 
 ### Phase 1: generic-v1 保存・管理画面編集
 
+状態: 実装済み。
+
 対象:
 
 - `schemaFormat` 導入
@@ -567,6 +569,8 @@ current_version_id: v1 stroke-v1
 
 ### Phase 2: 通常画面 generic-v1 表示
 
+状態: 実装済み。
+
 対象:
 
 - `generic-v1` 動的描画
@@ -576,6 +580,8 @@ current_version_id: v1 stroke-v1
 
 ### Phase 3: copy_format_json 出力
 
+状態: 実装済み。
+
 対象:
 
 - `text-v1` 出力定義
@@ -584,6 +590,8 @@ current_version_id: v1 stroke-v1
 - 既存出力との互換テスト
 
 ### Phase 4: 既存stroke-v1完全移行
+
+状態: 実装済み。DB初期化時のマイグレーション `004` で、脳梗塞5テンプレートを `generic-v1` の新バージョンとして追加する。
 
 対象:
 
@@ -596,13 +604,20 @@ current_version_id: v1 stroke-v1
 
 ### Phase 5: stroke-v1専用処理の整理
 
+状態: 着手中。
+
 対象:
 
 - `stroke-v1` 専用描画の削除検討
 - `field-meta.js` 固定ラベルのschema側移行
 - `copy-format.js` 固定出力の縮小
 
-十分な移行期間を置いた後に実施する。
+方針:
+
+- 新規テンプレート追加の初期選択は `generic-v1` とする
+- `stroke-v1` は旧バージョン・ロールバック・既存DB互換のため当面残す
+- 通常画面の主経路は `generic-v1` とし、`stroke-v1` 専用描画は互換用として段階的に縮小する
+- `field-meta.js` の固定ラベルは `generic-v1` ではschema側ラベルを優先し、旧 `stroke-v1` 互換処理に限定して使う
 
 ## 13. テスト方針
 

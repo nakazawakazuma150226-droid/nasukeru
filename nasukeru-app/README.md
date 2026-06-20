@@ -147,7 +147,7 @@ SQLite DB
 
 ## 可変テンプレートの段階導入
 
-現在は `stroke-v1` と `generic-v1` を併存させ、通常画面でも `generic-v1` を動的表示し、`copy_format_json` によるコピー文生成を行う Phase 3 です。
+現在は `stroke-v1` と `generic-v1` を併存させた上で、脳梗塞5テンプレートも `generic-v1` へ移行済みです。通常画面の表示とコピー出力も `generic-v1` を主経路にし、`stroke-v1` は旧バージョン・後方互換用として残す Phase 5 です。
 
 - `schemaFormat` が無い既存テンプレートは `stroke-v1` として扱う
 - `generic-v1` は `sections` と `fields` を持つ可変schemaとして保存できる
@@ -157,6 +157,7 @@ SQLite DB
 - `copy_format_json` が無い場合は暫定の汎用形式で出力する
 - `text-v1` は `lines` 配列と `{{section.field}}` 参照をサポートする
 - 条件分岐、行の省略、複雑な整形は次フェーズで設計・実装する
+- 管理画面の新規追加は `generic-v1` を初期選択し、必要時のみ `stroke-v1` を選べる
 
 脳梗塞5テンプレートは `generic-v1` へ移行済みです。共通項目に加えて、MCA/ACA/PCA/ラクナ/脳幹ごとの個別観察項目を空欄フィールドとして持ちます。既存の `stroke-v1` 版は履歴に残し、DB初期化時のマイグレーション `004` で新バージョンとして適用します。
 

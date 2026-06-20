@@ -1,6 +1,7 @@
 var adminTemplates = [];
 var adminFilter = "active";
 var restOptionCache = null;
+var DEFAULT_NEW_SCHEMA_FORMAT = "generic-v1";
 
 var VITAL_KEYS = ["jcs", "t", "bp", "hr", "spo2"];
 var SYMPTOM_KEYS = ["headache", "dizzy", "nausea"];
@@ -294,7 +295,7 @@ function openCreateModal() {
   openModal("新規追加", "");
   var form = document.createElement("form");
   form.className = "admin-form";
-  var schemaFormatField = formSelect("schema形式", "schema_format", "stroke-v1", [
+  var schemaFormatField = formSelect("schema形式", "schema_format", DEFAULT_NEW_SCHEMA_FORMAT, [
     { value: "stroke-v1", label: "stroke-v1" },
     { value: "generic-v1", label: "generic-v1" }
   ]);

@@ -70,6 +70,7 @@ nasukeru-app/
     - `GET /api/health`
     - `GET /api/templates`
     - `GET /api/templates/<id>`
+    - `GET /api/templates/<id>/versions`
     - `GET /api/quick-templates`
     - `GET /api/rest-options`
     - `GET /api/search-keywords`
@@ -150,7 +151,13 @@ http://127.0.0.1:8000/api/health
 SQLite テーブル:
 
 - `templates`
-  - テンプレートの基本情報と入力項目JSONを保存
+  - テンプレートの基本情報、公開状態、現在バージョンへの参照を保存
+
+- `template_versions`
+  - テンプレートの入力項目JSONと変更理由をバージョンとして保存
+
+- `template_audit_logs`
+  - テンプレートに対する移行・更新・削除などの操作履歴を保存
 
 - `quick_templates`
   - 左側の専用テンプレート一覧を保存

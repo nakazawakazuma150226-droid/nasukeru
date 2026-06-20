@@ -102,10 +102,15 @@ def get_templates():
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT id, label, full, schema_json
-            FROM templates
-            WHERE is_active = 1
-            ORDER BY display_order, label
+            SELECT
+              t.id,
+              t.label,
+              t.full,
+              COALESCE(v.schema_json, t.schema_json) AS schema_json
+            FROM templates t
+            LEFT JOIN template_versions v ON v.id = t.current_version_id
+            WHERE t.is_active = 1
+            ORDER BY t.display_order, t.label
             """
         ).fetchall()
     return jsonify([template_from_row(row) for row in rows])
@@ -116,15 +121,49 @@ def get_template(template_id):
     with connect() as conn:
         row = conn.execute(
             """
-            SELECT id, label, full, schema_json
-            FROM templates
-            WHERE id = ? AND is_active = 1
+            SELECT
+              t.id,
+              t.label,
+              t.full,
+              COALESCE(v.schema_json, t.schema_json) AS schema_json
+            FROM templates t
+            LEFT JOIN template_versions v ON v.id = t.current_version_id
+            WHERE t.id = ? AND t.is_active = 1
             """,
             (template_id,),
         ).fetchone()
     if row is None:
         return jsonify({"error": "template not found"}), 404
     return jsonify(template_from_row(row))
+
+
+@app.get("/api/templates/<template_id>/versions")
+def get_template_versions(template_id):
+    with connect() as conn:
+        template = conn.execute(
+            "SELECT id FROM templates WHERE id = ? AND is_active = 1",
+            (template_id,),
+        ).fetchone()
+        if template is None:
+            return jsonify({"error": "template not found"}), 404
+        rows = conn.execute(
+            """
+            SELECT
+              id,
+              version_number,
+              change_summary,
+              change_reason,
+              created_by,
+              created_at,
+              approved_by,
+              approved_at
+            FROM template_versions
+            WHERE template_id = ?
+            ORDER BY version_number DESC
+            """,
+            (template_id,),
+        ).fetchall()
+    return jsonify([dict(row) for row in rows])
 
 
 @app.get("/api/rest-options")
@@ -168,6 +207,8 @@ def health():
         with connect() as conn:
             counts = {
                 "templates": count_rows(conn, "templates"),
+                "template_versions": count_rows(conn, "template_versions"),
+                "template_audit_logs": count_rows(conn, "template_audit_logs"),
                 "quick_templates": count_rows(conn, "quick_templates"),
                 "rest_options": count_rows(conn, "rest_options"),
                 "search_keywords": count_rows(conn, "search_keywords"),

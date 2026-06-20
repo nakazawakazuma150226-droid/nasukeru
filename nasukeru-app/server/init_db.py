@@ -163,6 +163,39 @@ def ensure_schema(conn):
           updated_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS template_versions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          template_id TEXT NOT NULL,
+          version_number INTEGER NOT NULL,
+          schema_json TEXT NOT NULL,
+          copy_format_json TEXT,
+          change_summary TEXT,
+          change_reason TEXT,
+          created_by TEXT NOT NULL DEFAULT 'system',
+          created_at TEXT NOT NULL,
+          approved_by TEXT,
+          approved_at TEXT,
+          FOREIGN KEY (template_id) REFERENCES templates(id),
+          UNIQUE (template_id, version_number)
+        );
+
+        CREATE TABLE IF NOT EXISTS template_audit_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          template_id TEXT NOT NULL,
+          version_id INTEGER,
+          action TEXT NOT NULL,
+          actor_id TEXT,
+          actor_name TEXT NOT NULL DEFAULT 'system',
+          acted_at TEXT NOT NULL,
+          before_json TEXT,
+          after_json TEXT,
+          diff_json TEXT,
+          reason TEXT,
+          client_info TEXT,
+          FOREIGN KEY (template_id) REFERENCES templates(id),
+          FOREIGN KEY (version_id) REFERENCES template_versions(id)
+        );
+
         CREATE TABLE IF NOT EXISTS rest_options (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           label TEXT NOT NULL,
@@ -192,8 +225,22 @@ def ensure_schema(conn):
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_search_keywords_keyword
           ON search_keywords(keyword);
+
+        CREATE INDEX IF NOT EXISTS idx_template_versions_template_id
+          ON template_versions(template_id);
+
+        CREATE INDEX IF NOT EXISTS idx_template_audit_logs_template_id
+          ON template_audit_logs(template_id);
         """
     )
+    ensure_column(conn, "templates", "current_version_id", "INTEGER")
+    ensure_column(conn, "templates", "status", "TEXT NOT NULL DEFAULT 'published'")
+
+
+def ensure_column(conn, table, column, definition):
+    columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def exists(conn, query, params):
@@ -226,6 +273,70 @@ def seed_templates(conn, now):
                 now,
                 now,
             ),
+        )
+
+
+def migrate_template_versions(conn, now):
+    rows = conn.execute(
+        """
+        SELECT id, schema_json, current_version_id
+        FROM templates
+        WHERE is_active = 1
+        ORDER BY display_order, id
+        """
+    ).fetchall()
+    for template_id, schema_json, current_version_id in rows:
+        if current_version_id:
+            continue
+
+        existing = conn.execute(
+            """
+            SELECT id
+            FROM template_versions
+            WHERE template_id = ?
+            ORDER BY version_number DESC
+            LIMIT 1
+            """,
+            (template_id,),
+        ).fetchone()
+        if existing:
+            version_id = existing[0]
+        else:
+            cursor = conn.execute(
+                """
+                INSERT INTO template_versions
+                  (template_id, version_number, schema_json, copy_format_json,
+                   change_summary, change_reason, created_by, created_at, approved_by, approved_at)
+                VALUES (?, 1, ?, NULL, ?, ?, 'system', ?, 'system', ?)
+                """,
+                (
+                    template_id,
+                    schema_json,
+                    "Initial version migrated from templates.schema_json",
+                    "Prepare versioned template storage",
+                    now,
+                    now,
+                ),
+            )
+            version_id = cursor.lastrowid
+            conn.execute(
+                """
+                INSERT INTO template_audit_logs
+                  (template_id, version_id, action, actor_name, acted_at, after_json, reason)
+                VALUES (?, ?, 'migrate', 'system', ?, ?, ?)
+                """,
+                (
+                    template_id,
+                    version_id,
+                    now,
+                    schema_json,
+                    "Create initial template version",
+                ),
+            )
+
+        conn.execute(
+            "UPDATE templates SET current_version_id = ?, status = 'published', updated_at = ? WHERE id = ?",
+            (version_id, now, template_id),
         )
 
 
@@ -272,6 +383,7 @@ def main():
     with connect(db_path) as conn:
         ensure_schema(conn)
         seed_templates(conn, now)
+        migrate_template_versions(conn, now)
         seed_rest_options(conn)
         seed_quick_templates(conn)
         seed_search_keywords(conn)

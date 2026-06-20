@@ -157,6 +157,7 @@ function buildGenericCard(template) {
   div.className = "tc";
   div.dataset.schemaFormat = "generic-v1";
   div.dataset.templateId = template.id;
+  div.copyFormat = template.copy_format || null;
 
   var hdr = document.createElement("div"); hdr.className = "tch";
   var bdg = document.createElement("span"); bdg.className = "bdg bsav"; bdg.textContent = "可変";

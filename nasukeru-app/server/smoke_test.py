@@ -78,6 +78,15 @@ GENERIC_SCHEMA = {
 }
 
 
+GENERIC_COPY_FORMAT = {
+    "format": "text-v1",
+    "lines": [
+        "Procedure: {{basic.procedure}}",
+        "Status: {{basic.status}}",
+    ],
+}
+
+
 def assert_status(response, expected_status, label, failures):
     status = response.status_code
     print(f"{status:3} {label}")
@@ -190,6 +199,7 @@ def run_write_tests(failures):
                 "full": "Generic test",
                 "category": "procedure",
                 "schema": GENERIC_SCHEMA,
+                "copy_format": GENERIC_COPY_FORMAT,
                 "change_reason": "smoke create generic",
             }
             assert_status(
@@ -202,7 +212,9 @@ def run_write_tests(failures):
             assert_status(generic_detail, 200, "GET /api/admin/templates/generic_test", failures)
             assert_json_contains(
                 generic_detail,
-                lambda item: item["schema_format"] == "generic-v1" and item["schema"]["schemaFormat"] == "generic-v1",
+                lambda item: item["schema_format"] == "generic-v1"
+                and item["schema"]["schemaFormat"] == "generic-v1"
+                and item["copy_format"]["format"] == "text-v1",
                 "GET /api/admin/templates/generic_test returns generic schema",
                 failures,
             )
@@ -210,7 +222,9 @@ def run_write_tests(failures):
             assert_status(generic_normal_detail, 200, "GET /api/templates/generic_test", failures)
             assert_json_contains(
                 generic_normal_detail,
-                lambda item: item["schema_format"] == "generic-v1" and item["schema"]["schemaFormat"] == "generic-v1",
+                lambda item: item["schema_format"] == "generic-v1"
+                and item["schema"]["schemaFormat"] == "generic-v1"
+                and item["copy_format"]["lines"][0] == "Procedure: {{basic.procedure}}",
                 "GET /api/templates/generic_test returns generic schema",
                 failures,
             )
@@ -243,6 +257,18 @@ def run_write_tests(failures):
                 client.post("/api/templates", json=invalid_generic_payload, headers=LOCAL_HEADERS),
                 400,
                 "POST /api/templates generic-v1 invalid select options",
+                failures,
+            )
+
+            invalid_copy_format_payload = {
+                **generic_payload,
+                "id": "bad_copy_format",
+                "copy_format": {"format": "text-v1", "lines": [123]},
+            }
+            assert_status(
+                client.post("/api/templates", json=invalid_copy_format_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v1 invalid copy_format",
                 failures,
             )
     finally:

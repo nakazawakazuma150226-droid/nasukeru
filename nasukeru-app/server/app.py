@@ -87,6 +87,7 @@ def normal_template_from_row(row):
         "full": row["full"],
         "schema_format": fmt,
         "schema": schema,
+        "copy_format": parse_json_value(row["copy_format_json"]) if "copy_format_json" in row.keys() else None,
     }
 
 
@@ -240,7 +241,8 @@ def fetch_template_state(conn, template_id):
           t.current_version_id,
           t.created_at,
           t.updated_at,
-          COALESCE(v.schema_json, t.schema_json) AS current_schema_json
+          COALESCE(v.schema_json, t.schema_json) AS current_schema_json,
+          v.copy_format_json AS current_copy_format_json
         FROM templates t
         LEFT JOIN template_versions v ON v.id = t.current_version_id
         WHERE t.id = ?
@@ -255,6 +257,7 @@ def admin_template_detail_from_row(row):
     return {
         **template_summary_from_row(row),
         "schema": schema,
+        "copy_format": parse_json_value(row["current_copy_format_json"]),
         "schema_format": get_schema_format(schema),
     }
 
@@ -356,7 +359,8 @@ def get_templates():
               t.id,
               t.label,
               t.full,
-              COALESCE(v.schema_json, t.schema_json) AS schema_json
+              COALESCE(v.schema_json, t.schema_json) AS schema_json,
+              v.copy_format_json AS copy_format_json
             FROM templates t
             LEFT JOIN template_versions v ON v.id = t.current_version_id
             WHERE (? = 1 OR t.is_active = 1)
@@ -419,6 +423,7 @@ def create_template():
 
     timestamp = now_iso()
     schema_json = json_dumps(validated["schema"])
+    copy_format_json = json_dumps(validated["copy_format"]) if validated["copy_format"] is not None else None
     change_summary = validated["change_summary"] or "Create template"
     conn = connect()
     try:
@@ -452,11 +457,12 @@ def create_template():
             INSERT INTO template_versions
               (template_id, version_number, schema_json, copy_format_json,
                change_summary, change_reason, created_by, created_at, approved_by, approved_at)
-            VALUES (?, 1, ?, NULL, ?, ?, 'local', ?, 'local', ?)
+            VALUES (?, 1, ?, ?, ?, ?, 'local', ?, 'local', ?)
             """,
             (
                 validated["id"],
                 schema_json,
+                copy_format_json,
                 change_summary,
                 validated["change_reason"],
                 timestamp,
@@ -479,7 +485,10 @@ def create_template():
             "create",
             timestamp,
             validated["change_reason"],
-            after=validated["schema"],
+            after={
+                "schema": validated["schema"],
+                "copy_format": validated["copy_format"],
+            },
         )
         summary = fetch_template_summary(conn, validated["id"])
         conn.commit()
@@ -505,6 +514,7 @@ def create_template_version(template_id):
 
     timestamp = now_iso()
     schema_json = json_dumps(validated["schema"])
+    copy_format_json = json_dumps(validated["copy_format"]) if validated["copy_format"] is not None else None
     conn = connect()
     try:
         conn.execute("BEGIN")
@@ -527,12 +537,13 @@ def create_template_version(template_id):
             INSERT INTO template_versions
               (template_id, version_number, schema_json, copy_format_json,
                change_summary, change_reason, created_by, created_at, approved_by, approved_at)
-            VALUES (?, ?, ?, NULL, ?, ?, 'local', ?, 'local', ?)
+            VALUES (?, ?, ?, ?, ?, ?, 'local', ?, 'local', ?)
             """,
             (
                 template_id,
                 version_number,
                 schema_json,
+                copy_format_json,
                 validated["change_summary"],
                 validated["change_reason"],
                 timestamp,
@@ -555,8 +566,14 @@ def create_template_version(template_id):
             "update",
             timestamp,
             validated["change_reason"],
-            before=parse_json_value(template["current_schema_json"]),
-            after=validated["schema"],
+            before={
+                "schema": parse_json_value(template["current_schema_json"]),
+                "copy_format": parse_json_value(template["current_copy_format_json"]),
+            },
+            after={
+                "schema": validated["schema"],
+                "copy_format": validated["copy_format"],
+            },
         )
         conn.commit()
     except Exception:
@@ -657,7 +674,8 @@ def get_template(template_id):
               t.id,
               t.label,
               t.full,
-              COALESCE(v.schema_json, t.schema_json) AS schema_json
+              COALESCE(v.schema_json, t.schema_json) AS schema_json,
+              v.copy_format_json AS copy_format_json
             FROM templates t
             LEFT JOIN template_versions v ON v.id = t.current_version_id
             WHERE t.id = ? AND t.is_active = 1

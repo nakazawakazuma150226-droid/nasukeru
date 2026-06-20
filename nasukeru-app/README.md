@@ -147,14 +147,16 @@ SQLite DB
 
 ## 可変テンプレートの段階導入
 
-現在は `stroke-v1` と `generic-v1` を併存させ、通常画面でも `generic-v1` を動的表示できる Phase 2 です。
+現在は `stroke-v1` と `generic-v1` を併存させ、通常画面でも `generic-v1` を動的表示し、`copy_format_json` によるコピー文生成を行う Phase 3 です。
 
 - `schemaFormat` が無い既存テンプレートは `stroke-v1` として扱う
 - `generic-v1` は `sections` と `fields` を持つ可変schemaとして保存できる
 - 通常入力画面は `stroke-v1` を従来タブUI、`generic-v1` を section/field ベースの動的UIとして表示する
 - `generic-v1` の入力初期値は安全側で空欄にする
-- `generic-v1` のコピー出力は暫定の汎用形式で行う
-- `copy_format_json` によるテンプレート別コピー文生成は次フェーズで設計・実装する
+- `generic-v1` のコピー出力は `copy_format_json` の `text-v1` 形式を優先する
+- `copy_format_json` が無い場合は暫定の汎用形式で出力する
+- `text-v1` は `lines` 配列と `{{section.field}}` 参照をサポートする
+- 条件分岐、行の省略、複雑な整形は次フェーズで設計・実装する
 
 ## 現在のデータフロー
 

@@ -7,6 +7,7 @@ SCHEMA_FORMAT_STROKE_V1 = "stroke-v1"
 SCHEMA_FORMAT_GENERIC_V1 = "generic-v1"
 ALLOWED_SCHEMA_FORMATS = (SCHEMA_FORMAT_STROKE_V1, SCHEMA_FORMAT_GENERIC_V1)
 ALLOWED_GENERIC_FIELD_TYPES = ("text", "textarea", "select")
+COPY_FORMAT_TEXT_V1 = "text-v1"
 
 REQUIRED_VITAL_KEYS = ("jcs", "t", "bp", "hr", "spo2")
 REQUIRED_SYMPTOM_KEYS = ("headache", "dizzy", "nausea")
@@ -267,6 +268,29 @@ def normalize_generic_v1_schema(schema):
     )
 
 
+def validate_copy_format(copy_format):
+    if copy_format is None:
+        return None
+    require_object(copy_format, "copy_format")
+    require_keys(copy_format, ("format", "lines"), "copy_format")
+    fmt = require_text(copy_format["format"], "copy_format.format")
+    if fmt != COPY_FORMAT_TEXT_V1:
+        raise SchemaValidationError("copy_format.format must be text-v1")
+    lines = copy_format["lines"]
+    if not isinstance(lines, list):
+        raise SchemaValidationError("copy_format.lines must be an array")
+    for index, line in enumerate(lines):
+        require_string(line, f"copy_format.lines[{index}]")
+    return copy_format
+
+
+def normalize_copy_format(copy_format):
+    validate_copy_format(copy_format)
+    if copy_format is None:
+        return None
+    return ordered_with_known_keys(copy_format, ("format", "lines"))
+
+
 def validate_template_payload(payload, require_identity=True, require_change_summary=False):
     require_object(payload, "payload")
     result = {}
@@ -277,6 +301,7 @@ def validate_template_payload(payload, require_identity=True, require_change_sum
         result["category"] = require_text(payload.get("category"), "category")
 
     result["schema"] = normalize_schema(payload.get("schema"))
+    result["copy_format"] = normalize_copy_format(payload.get("copy_format"))
 
     if require_change_summary:
         result["change_summary"] = require_text(payload.get("change_summary"), "change_summary")

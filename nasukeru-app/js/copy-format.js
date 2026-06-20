@@ -88,6 +88,12 @@ function buildCopyText() {
 }
 
 function buildGenericCopyText() {
+  var copyFormat = currentCopyCard.copyFormat;
+  if (copyFormat && copyFormat.format === "text-v1" && Array.isArray(copyFormat.lines)) {
+    buildGenericTemplateCopyText(copyFormat);
+    return;
+  }
+
   var lines = [];
   var titleEl = currentCopyCard.querySelector(".stroke-title");
   var title = titleEl ? titleEl.textContent : "";
@@ -106,6 +112,28 @@ function buildGenericCopyText() {
     lines.push(label + "：" + (input.value || "__"));
   });
 
+  document.getElementById("prev").textContent = lines.join("\n");
+}
+
+function collectGenericValues() {
+  var values = {};
+  currentCopyCard.querySelectorAll(".generic-input").forEach(function(input) {
+    values[input.dataset.sectionId + "." + input.dataset.fieldId] = input.value || "__";
+  });
+  return values;
+}
+
+function renderCopyLine(line, values) {
+  return line.replace(/\{\{\s*([a-z0-9_-]+)\.([a-z0-9_-]+)\s*\}\}/g, function(match, sectionId, fieldId) {
+    return values[sectionId + "." + fieldId] || "__";
+  });
+}
+
+function buildGenericTemplateCopyText(copyFormat) {
+  var values = collectGenericValues();
+  var lines = copyFormat.lines.map(function(line) {
+    return renderCopyLine(line, values);
+  });
   document.getElementById("prev").textContent = lines.join("\n");
 }
 

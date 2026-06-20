@@ -7,19 +7,37 @@ from flask import Flask, jsonify, send_from_directory
 
 
 APP_ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = Path(__file__).with_name("nasukeru.db")
+DEFAULT_DB_PATH = Path(__file__).with_name("nasukeru.db")
 
 app = Flask(__name__)
 
 
+class DatabaseNotReady(RuntimeError):
+    pass
+
+
+class TemplateSchemaError(RuntimeError):
+    pass
+
+
+def get_db_path():
+    return Path(os.environ.get("NASUKERU_DB_PATH", DEFAULT_DB_PATH)).expanduser()
+
+
 def connect():
-    conn = sqlite3.connect(DB_PATH)
+    db_path = get_db_path()
+    if not db_path.exists():
+        raise DatabaseNotReady(f"DB not found: {db_path}")
+    conn = sqlite3.connect(db_path, timeout=5)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 
 def template_from_row(row):
     schema = json.loads(row["schema_json"])
+    validate_template_schema(schema)
     return {
         "id": row["id"],
         "label": row["label"],
@@ -31,8 +49,32 @@ def template_from_row(row):
     }
 
 
+def validate_template_schema(schema):
+    required = ("vitals", "symptoms", "neuro", "rest")
+    missing = [key for key in required if key not in schema]
+    if missing:
+        raise TemplateSchemaError("template schema missing: " + ", ".join(missing))
+    if "mmt" not in schema["neuro"]:
+        raise TemplateSchemaError("template schema missing: neuro.mmt")
+
+
 def count_rows(conn, table):
     return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+
+
+@app.errorhandler(DatabaseNotReady)
+def handle_database_not_ready(error):
+    return jsonify({"ok": False, "error": "database not ready", "detail": str(error)}), 503
+
+
+@app.errorhandler(sqlite3.Error)
+def handle_database_error(error):
+    return jsonify({"ok": False, "error": "database error", "detail": str(error)}), 500
+
+
+@app.errorhandler(TemplateSchemaError)
+def handle_template_schema_error(error):
+    return jsonify({"ok": False, "error": "template schema error", "detail": str(error)}), 500
 
 
 @app.get("/")
@@ -122,14 +164,19 @@ def get_search_keywords():
 
 @app.get("/api/health")
 def health():
-    with connect() as conn:
-        counts = {
-            "templates": count_rows(conn, "templates"),
-            "quick_templates": count_rows(conn, "quick_templates"),
-            "rest_options": count_rows(conn, "rest_options"),
-            "search_keywords": count_rows(conn, "search_keywords"),
-        }
-    return jsonify({"ok": True, "database": "connected", "counts": counts})
+    try:
+        with connect() as conn:
+            counts = {
+                "templates": count_rows(conn, "templates"),
+                "quick_templates": count_rows(conn, "quick_templates"),
+                "rest_options": count_rows(conn, "rest_options"),
+                "search_keywords": count_rows(conn, "search_keywords"),
+            }
+    except DatabaseNotReady as error:
+        return jsonify({"ok": False, "database": "missing", "detail": str(error)}), 503
+    except sqlite3.Error as error:
+        return jsonify({"ok": False, "database": "error", "detail": str(error)}), 500
+    return jsonify({"ok": True, "database": "connected", "db_path": str(get_db_path()), "counts": counts})
 
 
 def env_flag(name):
@@ -137,7 +184,7 @@ def env_flag(name):
 
 
 if __name__ == "__main__":
-    if not DB_PATH.exists():
+    if not get_db_path().exists():
         raise SystemExit("DB not found. Run: py -3.10 server/init_db.py")
     host = os.environ.get("NASUKERU_HOST", "127.0.0.1")
     port = int(os.environ.get("NASUKERU_PORT", "8000"))

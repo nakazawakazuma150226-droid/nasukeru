@@ -1,10 +1,11 @@
 import json
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
 
-DB_PATH = Path(__file__).with_name("nasukeru.db")
+DEFAULT_DB_PATH = Path(__file__).with_name("nasukeru.db")
 
 
 STROKE_TYPES = [
@@ -109,6 +110,44 @@ SEARCH_KEYWORDS = [
 ]
 
 
+def get_db_path():
+    return Path(os.environ.get("NASUKERU_DB_PATH", DEFAULT_DB_PATH)).expanduser()
+
+
+def connect(db_path):
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path, timeout=5)
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    return conn
+
+
+def validate_template(template):
+    required = ("id", "label", "full", "vitals", "symptoms", "neuro", "rest")
+    missing = [key for key in required if key not in template]
+    if missing:
+        raise ValueError(f"template {template.get('id', '<unknown>')} missing: {', '.join(missing)}")
+    if "mmt" not in template["neuro"]:
+        raise ValueError(f"template {template['id']} missing: neuro.mmt")
+
+
+def validate_seed_data():
+    ids = set()
+    for template in STROKE_TYPES:
+        validate_template(template)
+        if template["id"] in ids:
+            raise ValueError(f"duplicate template id: {template['id']}")
+        ids.add(template["id"])
+    if len(set(REST_OPTIONS)) != len(REST_OPTIONS):
+        raise ValueError("duplicate rest option")
+    actions = [item["action"] for item in QUICK_TEMPLATES]
+    if len(set(actions)) != len(actions):
+        raise ValueError("duplicate quick template action")
+    keywords = [item["keyword"] for item in SEARCH_KEYWORDS]
+    if len(set(keywords)) != len(keywords):
+        raise ValueError("duplicate search keyword")
+
+
 def ensure_schema(conn):
     conn.executescript(
         """
@@ -144,6 +183,15 @@ def ensure_schema(conn):
           template_action TEXT NOT NULL,
           display_order INTEGER NOT NULL DEFAULT 0
         );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_rest_options_label
+          ON rest_options(label);
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_quick_templates_action
+          ON quick_templates(action);
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_search_keywords_keyword
+          ON search_keywords(keyword);
         """
     )
 
@@ -218,15 +266,16 @@ def seed_search_keywords(conn):
 
 
 def main():
+    validate_seed_data()
     now = datetime.now(timezone.utc).isoformat()
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(DB_PATH) as conn:
+    db_path = get_db_path()
+    with connect(db_path) as conn:
         ensure_schema(conn)
         seed_templates(conn, now)
         seed_rest_options(conn)
         seed_quick_templates(conn)
         seed_search_keywords(conn)
-    print(f"Prepared {DB_PATH}")
+    print(f"Prepared {db_path}")
 
 
 if __name__ == "__main__":

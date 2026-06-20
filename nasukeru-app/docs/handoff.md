@@ -142,6 +142,8 @@
 
 テンプレート定義はSQLiteに保存し、`js/templates.js` のAPI境界から読み込む。
 
+DBファイルは既定では `server/nasukeru.db`。運用配置を変える場合は `NASUKERU_DB_PATH` で指定する。
+
 ### 3.2 永続化なし
 
 入力内容とログは保存しない。
@@ -498,6 +500,10 @@ API例:
 - `GET /api/quick-templates`
 - `GET /api/rest-options`
 - `GET /api/search-keywords`
+
+検証用:
+
+- `py -3.10 server\smoke_test.py`
 
 今後の候補:
 

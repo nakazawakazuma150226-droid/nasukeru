@@ -93,6 +93,13 @@ py -3.10 -m pip install -r requirements.txt
 py -3.10 server\init_db.py
 ```
 
+DBファイルの配置先を変える場合は `NASUKERU_DB_PATH` を指定します。
+
+```powershell
+$env:NASUKERU_DB_PATH = "C:\nasukeru-data\nasukeru.db"
+py -3.10 server\init_db.py
+```
+
 ## 動かし方
 
 Flask サーバーを起動します。
@@ -120,6 +127,20 @@ http://127.0.0.1:8000/
 ```powershell
 $env:NASUKERU_DEBUG = "1"
 py -3.10 server\app.py
+```
+
+## 動作確認
+
+主要APIと非公開ファイルの遮断をまとめて確認できます。
+
+```powershell
+py -3.10 server\smoke_test.py
+```
+
+ヘルスチェックだけ確認する場合:
+
+```text
+http://127.0.0.1:8000/api/health
 ```
 
 ## DB/API構成

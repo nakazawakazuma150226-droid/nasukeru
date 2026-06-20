@@ -1,9 +1,17 @@
 import json
 import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
+
+from template_schema import (
+    SchemaValidationError,
+    normalize_schema,
+    validate_template_payload,
+)
 
 
 APP_ROOT = Path(__file__).resolve().parent.parent
@@ -17,6 +25,18 @@ class DatabaseNotReady(RuntimeError):
 
 
 class TemplateSchemaError(RuntimeError):
+    pass
+
+
+class TemplateValidationError(RuntimeError):
+    pass
+
+
+class TemplateStateError(RuntimeError):
+    pass
+
+
+class LocalGuardError(RuntimeError):
     pass
 
 
@@ -37,7 +57,7 @@ def connect():
 
 def template_from_row(row):
     schema = json.loads(row["schema_json"])
-    validate_template_schema(schema)
+    validate_db_template_schema(schema)
     return {
         "id": row["id"],
         "label": row["label"],
@@ -69,7 +89,7 @@ def version_from_row(row, include_schema=False):
     }
     if include_schema:
         schema = parse_json_value(row["schema_json"])
-        validate_template_schema(schema)
+        validate_db_template_schema(schema)
         version["schema"] = schema
         version["copy_format"] = parse_json_value(row["copy_format_json"])
     return version
@@ -92,13 +112,126 @@ def audit_log_from_row(row):
     }
 
 
-def validate_template_schema(schema):
-    required = ("vitals", "symptoms", "neuro", "rest")
-    missing = [key for key in required if key not in schema]
-    if missing:
-        raise TemplateSchemaError("template schema missing: " + ", ".join(missing))
-    if "mmt" not in schema["neuro"]:
-        raise TemplateSchemaError("template schema missing: neuro.mmt")
+def validate_db_template_schema(schema):
+    try:
+        normalize_schema(schema)
+    except SchemaValidationError as error:
+        raise TemplateSchemaError(str(error)) from error
+
+
+def json_dumps(value):
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def require_json_body():
+    payload = request.get_json(silent=True)
+    if payload is None:
+        raise TemplateValidationError("request body must be JSON")
+    if not isinstance(payload, dict):
+        raise TemplateValidationError("request body must be an object")
+    return payload
+
+
+def require_reason(payload, field="reason"):
+    value = payload.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise TemplateValidationError(f"{field} is required")
+    return value.strip()
+
+
+def allowed_local_origin(value):
+    if not value:
+        return False
+    parsed = urlparse(value)
+    return parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+
+
+def require_local_post_guard():
+    if request.method != "POST":
+        return
+    if request.headers.get("X-Nasukeru-Local") != "1":
+        raise LocalGuardError("X-Nasukeru-Local: 1 header is required")
+    origin = request.headers.get("Origin")
+    referer = request.headers.get("Referer")
+    if not origin and not referer:
+        raise LocalGuardError("Origin or Referer header is required")
+    if not (allowed_local_origin(origin) or allowed_local_origin(referer)):
+        raise LocalGuardError("Origin or Referer must be localhost, 127.0.0.1, or ::1")
+
+
+def template_summary_from_row(row):
+    return {
+        "id": row["id"],
+        "label": row["label"],
+        "full": row["full"],
+        "category": row["category"],
+        "is_active": bool(row["is_active"]),
+        "status": row["status"],
+        "current_version_id": row["current_version_id"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def fetch_template_summary(conn, template_id):
+    row = conn.execute(
+        """
+        SELECT id, label, full, category, is_active, status,
+               current_version_id, created_at, updated_at
+        FROM templates
+        WHERE id = ?
+        """,
+        (template_id,),
+    ).fetchone()
+    return template_summary_from_row(row) if row else None
+
+
+def fetch_template_state(conn, template_id):
+    return conn.execute(
+        """
+        SELECT
+          t.id,
+          t.label,
+          t.full,
+          t.category,
+          t.schema_json,
+          t.is_active,
+          t.status,
+          t.current_version_id,
+          t.created_at,
+          t.updated_at,
+          COALESCE(v.schema_json, t.schema_json) AS current_schema_json
+        FROM templates t
+        LEFT JOIN template_versions v ON v.id = t.current_version_id
+        WHERE t.id = ?
+        """,
+        (template_id,),
+    ).fetchone()
+
+
+def insert_audit_log(conn, template_id, version_id, action, acted_at, reason, before=None, after=None):
+    conn.execute(
+        """
+        INSERT INTO template_audit_logs
+          (template_id, version_id, action, actor_name, acted_at,
+           before_json, after_json, diff_json, reason, client_info)
+        VALUES (?, ?, ?, 'local', ?, ?, ?, NULL, ?, ?)
+        """,
+        (
+            template_id,
+            version_id,
+            action,
+            acted_at,
+            json_dumps(before) if before is not None else None,
+            json_dumps(after) if after is not None else None,
+            reason,
+            request.user_agent.string,
+        ),
+    )
 
 
 def count_rows(conn, table):
@@ -118,6 +251,27 @@ def handle_database_error(error):
 @app.errorhandler(TemplateSchemaError)
 def handle_template_schema_error(error):
     return jsonify({"ok": False, "error": "template schema error", "detail": str(error)}), 500
+
+
+@app.errorhandler(TemplateValidationError)
+def handle_template_validation_error(error):
+    return jsonify({"ok": False, "error": "template validation error", "detail": str(error)}), 400
+
+
+@app.errorhandler(TemplateStateError)
+def handle_template_state_error(error):
+    return jsonify({"ok": False, "error": "template state error", "detail": str(error)}), 409
+
+
+@app.errorhandler(LocalGuardError)
+def handle_local_guard_error(error):
+    return jsonify({"ok": False, "error": "local guard error", "detail": str(error)}), 403
+
+
+@app.before_request
+def guard_local_write_requests():
+    if request.path.startswith("/api/templates") and request.method == "POST":
+        require_local_post_guard()
 
 
 @app.get("/")
@@ -142,6 +296,7 @@ def js(filename):
 
 @app.get("/api/templates")
 def get_templates():
+    include_inactive = request.args.get("include_inactive") == "1"
     with connect() as conn:
         rows = conn.execute(
             """
@@ -152,11 +307,251 @@ def get_templates():
               COALESCE(v.schema_json, t.schema_json) AS schema_json
             FROM templates t
             LEFT JOIN template_versions v ON v.id = t.current_version_id
-            WHERE t.is_active = 1
+            WHERE (? = 1 OR t.is_active = 1)
             ORDER BY t.display_order, t.label
-            """
+            """,
+            (1 if include_inactive else 0,),
         ).fetchall()
     return jsonify([template_from_row(row) for row in rows])
+
+
+@app.post("/api/templates")
+def create_template():
+    payload = require_json_body()
+    try:
+        validated = validate_template_payload(payload, require_identity=True)
+    except SchemaValidationError as error:
+        raise TemplateValidationError(str(error)) from error
+
+    timestamp = now_iso()
+    schema_json = json_dumps(validated["schema"])
+    change_summary = validated["change_summary"] or "Create template"
+    conn = connect()
+    try:
+        conn.execute("BEGIN")
+        if fetch_template_state(conn, validated["id"]) is not None:
+            raise TemplateStateError("template id already exists")
+
+        display_order = conn.execute(
+            "SELECT COALESCE(MAX(display_order), 0) + 1 FROM templates"
+        ).fetchone()[0]
+        conn.execute(
+            """
+            INSERT INTO templates
+              (id, label, full, category, schema_json, is_active, display_order,
+               created_at, updated_at, current_version_id, status)
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, NULL, 'published')
+            """,
+            (
+                validated["id"],
+                validated["label"],
+                validated["full"],
+                validated["category"],
+                schema_json,
+                display_order,
+                timestamp,
+                timestamp,
+            ),
+        )
+        cursor = conn.execute(
+            """
+            INSERT INTO template_versions
+              (template_id, version_number, schema_json, copy_format_json,
+               change_summary, change_reason, created_by, created_at, approved_by, approved_at)
+            VALUES (?, 1, ?, NULL, ?, ?, 'local', ?, 'local', ?)
+            """,
+            (
+                validated["id"],
+                schema_json,
+                change_summary,
+                validated["change_reason"],
+                timestamp,
+                timestamp,
+            ),
+        )
+        version_id = cursor.lastrowid
+        conn.execute(
+            """
+            UPDATE templates
+            SET current_version_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (version_id, timestamp, validated["id"]),
+        )
+        insert_audit_log(
+            conn,
+            validated["id"],
+            version_id,
+            "create",
+            timestamp,
+            validated["change_reason"],
+            after=validated["schema"],
+        )
+        summary = fetch_template_summary(conn, validated["id"])
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return jsonify({"ok": True, "template": summary}), 201
+
+
+@app.post("/api/templates/<template_id>/versions")
+def create_template_version(template_id):
+    payload = require_json_body()
+    try:
+        validated = validate_template_payload(
+            payload,
+            require_identity=False,
+            require_change_summary=True,
+        )
+    except SchemaValidationError as error:
+        raise TemplateValidationError(str(error)) from error
+
+    timestamp = now_iso()
+    schema_json = json_dumps(validated["schema"])
+    conn = connect()
+    try:
+        conn.execute("BEGIN")
+        template = fetch_template_state(conn, template_id)
+        if template is None:
+            return jsonify({"ok": False, "error": "template not found"}), 404
+        if not template["is_active"]:
+            raise TemplateStateError("deleted template cannot be edited")
+
+        version_number = conn.execute(
+            """
+            SELECT COALESCE(MAX(version_number), 0) + 1
+            FROM template_versions
+            WHERE template_id = ?
+            """,
+            (template_id,),
+        ).fetchone()[0]
+        cursor = conn.execute(
+            """
+            INSERT INTO template_versions
+              (template_id, version_number, schema_json, copy_format_json,
+               change_summary, change_reason, created_by, created_at, approved_by, approved_at)
+            VALUES (?, ?, ?, NULL, ?, ?, 'local', ?, 'local', ?)
+            """,
+            (
+                template_id,
+                version_number,
+                schema_json,
+                validated["change_summary"],
+                validated["change_reason"],
+                timestamp,
+                timestamp,
+            ),
+        )
+        version_id = cursor.lastrowid
+        conn.execute(
+            """
+            UPDATE templates
+            SET schema_json = ?, current_version_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (schema_json, version_id, timestamp, template_id),
+        )
+        insert_audit_log(
+            conn,
+            template_id,
+            version_id,
+            "update",
+            timestamp,
+            validated["change_reason"],
+            before=parse_json_value(template["current_schema_json"]),
+            after=validated["schema"],
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return jsonify(
+        {
+            "ok": True,
+            "template_id": template_id,
+            "version_id": version_id,
+            "version_number": version_number,
+        }
+    ), 201
+
+
+@app.post("/api/templates/<template_id>/delete")
+def delete_template(template_id):
+    payload = require_json_body()
+    reason = require_reason(payload)
+    timestamp = now_iso()
+    conn = connect()
+    try:
+        conn.execute("BEGIN")
+        template = fetch_template_state(conn, template_id)
+        if template is None:
+            return jsonify({"ok": False, "error": "template not found"}), 404
+        if not template["is_active"]:
+            raise TemplateStateError("template is already deleted")
+
+        conn.execute(
+            "UPDATE templates SET is_active = 0, updated_at = ? WHERE id = ?",
+            (timestamp, template_id),
+        )
+        insert_audit_log(
+            conn,
+            template_id,
+            template["current_version_id"],
+            "delete",
+            timestamp,
+            reason,
+            before=template_summary_from_row(template),
+            after={"is_active": False},
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return jsonify({"ok": True, "template_id": template_id, "is_active": False})
+
+
+@app.post("/api/templates/<template_id>/restore")
+def restore_template(template_id):
+    payload = require_json_body()
+    reason = require_reason(payload)
+    timestamp = now_iso()
+    conn = connect()
+    try:
+        conn.execute("BEGIN")
+        template = fetch_template_state(conn, template_id)
+        if template is None:
+            return jsonify({"ok": False, "error": "template not found"}), 404
+        if template["is_active"]:
+            raise TemplateStateError("template is already active")
+
+        conn.execute(
+            "UPDATE templates SET is_active = 1, updated_at = ? WHERE id = ?",
+            (timestamp, template_id),
+        )
+        insert_audit_log(
+            conn,
+            template_id,
+            template["current_version_id"],
+            "restore",
+            timestamp,
+            reason,
+            before={"is_active": False},
+            after={"is_active": True},
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return jsonify({"ok": True, "template_id": template_id, "is_active": True})
 
 
 @app.get("/api/templates/<template_id>")

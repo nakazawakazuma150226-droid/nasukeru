@@ -36,6 +36,7 @@ nasukeru-app/
   server/
     app.py
     init_db.py
+    template_schema.py
     smoke_test.py
     nasukeru.db        # ローカル生成。Git管理対象外
 ```
@@ -95,6 +96,10 @@ SQLite DB
   - 既存テンプレートに `template_versions` がない場合は version 1 として移行する
   - DB構造変更の適用状況を `schema_migrations` に記録する
 
+- `server/template_schema.py`
+  - テンプレートJSONの構造・型・必須キーを検証する
+  - API保存前とDB初期化時の共通バリデーションとして使う
+
 - `server/app.py`
   - Flaskで画面とAPIを配信する
   - 現在のAPI:
@@ -108,6 +113,10 @@ SQLite DB
     - `GET /api/rest-options`
     - `GET /api/search-keywords`
     - `GET /api/migrations`
+    - `POST /api/templates`
+    - `POST /api/templates/<id>/versions`
+    - `POST /api/templates/<id>/delete`
+    - `POST /api/templates/<id>/restore`
 
 - `server/smoke_test.py`
   - 主要APIが期待したステータスを返すか確認する
@@ -223,7 +232,7 @@ http://127.0.0.1:8000/api/health
 
 ## DB/API構成
 
-現在は読み取り専用の最小APIです。テンプレート編集、承認、監査ログは未実装です。
+現在は通常画面向けの読み取りAPIに加えて、ローカル管理用のテンプレート追加・編集・削除・復元APIを持ちます。承認フローと管理画面UIは未実装です。
 
 ### SQLite テーブル
 
@@ -303,8 +312,25 @@ APIの返却形は既存画面に合わせて維持しています。
 - `GET /api/templates/<id>/versions`
 - `GET /api/templates/<id>/versions/<version_id>`
 - `GET /api/templates/<id>/logs`
+- `GET /api/templates?include_inactive=1`
 
-現在は読み取り専用です。テンプレート追加・編集・削除APIはまだありません。
+ローカル管理用:
+
+- `POST /api/templates`
+  - テンプレートを追加し、`template_versions` に version 1 を作成する
+  - 必須: `id`, `label`, `full`, `category`, `schema`, `change_reason`
+  - `id` は `^[a-z0-9_-]{1,32}$`
+- `POST /api/templates/<id>/versions`
+  - 既存テンプレートを上書きせず、新しいバージョンとして編集内容を追加する
+  - 必須: `schema`, `change_summary`, `change_reason`
+- `POST /api/templates/<id>/delete`
+  - 物理削除せず `is_active = 0` にする
+  - 必須: `reason`
+- `POST /api/templates/<id>/restore`
+  - 論理削除済みテンプレートを復元する
+  - 必須: `reason`
+
+すべての `POST` は `X-Nasukeru-Local: 1` と、`localhost` / `127.0.0.1` / `::1` の `Origin` または `Referer` を必須にしています。これは認証ではなく、ローカル起動中のブラウザ経由攻撃を軽く防ぐためのものです。外部公開や多人数運用を行う場合は、別途認証・権限管理・CSRF対策が必要です。
 
 ## 運用前の注意
 

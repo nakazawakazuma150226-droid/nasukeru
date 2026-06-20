@@ -4,6 +4,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from template_schema import SchemaValidationError, normalize_schema, validate_template_id
+
 
 DEFAULT_DB_PATH = Path(__file__).with_name("nasukeru.db")
 
@@ -123,12 +125,18 @@ def connect(db_path):
 
 
 def validate_template(template):
-    required = ("id", "label", "full", "vitals", "symptoms", "neuro", "rest")
-    missing = [key for key in required if key not in template]
-    if missing:
-        raise ValueError(f"template {template.get('id', '<unknown>')} missing: {', '.join(missing)}")
-    if "mmt" not in template["neuro"]:
-        raise ValueError(f"template {template['id']} missing: neuro.mmt")
+    try:
+        validate_template_id(template.get("id"))
+        normalize_schema(
+            {
+                "vitals": template.get("vitals"),
+                "symptoms": template.get("symptoms"),
+                "neuro": template.get("neuro"),
+                "rest": template.get("rest"),
+            }
+        )
+    except SchemaValidationError as error:
+        raise ValueError(f"template {template.get('id', '<unknown>')} invalid: {error}") from error
 
 
 def validate_seed_data():
@@ -273,6 +281,7 @@ def seed_templates(conn, now):
             "neuro": template["neuro"],
             "rest": template["rest"],
         }
+        schema = normalize_schema(schema)
         conn.execute(
             """
             INSERT INTO templates

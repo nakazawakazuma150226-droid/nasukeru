@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ナスケル テンプレート管理</title>
+<link rel="icon" href="assets/nasukeru-icon.jpg">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="admin-body">
+<div class="hdr admin-hdr">
+  <img class="app-icon" src="assets/nasukeru-icon.jpg" alt="ナスケル">
+  <div class="logo">ナスケル</div>
+  <div class="logo-tag">テンプレート管理</div>
+  <a class="admin-back" href="/">通常画面へ</a>
+</div>
+
+<main class="admin-shell">
+  <section class="admin-head">
+    <div>
+      <h1>テンプレート管理</h1>
+      <p id="admin-summary">読み込み中</p>
+    </div>
+    <button class="btn bp admin-primary" id="new-template-btn" type="button">新規追加</button>
+  </section>
+
+  <section class="admin-panel">
+    <div class="admin-toolbar">
+      <div class="admin-tabs" role="tablist" aria-label="表示対象">
+        <button class="admin-tab on" type="button" data-filter="active">有効のみ</button>
+        <button class="admin-tab" type="button" data-filter="all">削除済みを含む</button>
+      </div>
+      <button class="btn bg" id="refresh-admin-btn" type="button">再読み込み</button>
+    </div>
+
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>状態</th>
+            <th>テンプレート</th>
+            <th>分類</th>
+            <th>版</th>
+            <th>更新日時</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="admin-template-rows">
+          <tr><td colspan="6" class="admin-empty-cell">読み込み中</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div class="ov admin-ov" id="admin-modal">
+  <div class="admin-modal" role="dialog" aria-modal="true" aria-labelledby="admin-modal-title">
+    <div class="admin-modal-head">
+      <div>
+        <h2 id="admin-modal-title"></h2>
+        <p id="admin-modal-subtitle"></p>
+      </div>
+      <button class="cmcl" id="admin-modal-close" type="button" aria-label="閉じる">×</button>
+    </div>
+    <div class="admin-alert" id="admin-modal-error"></div>
+    <div class="admin-modal-body" id="admin-modal-body"></div>
+    <div class="admin-modal-actions" id="admin-modal-actions"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="js/templates.js"></script>
+<script src="js/field-meta.js"></script>
+<script src="js/admin.js"></script>
+</body>
+</html>

@@ -8,8 +8,12 @@ from init_db import main as init_db_main
 
 EXPECTED_GETS = [
     ("/", 200),
+    ("/admin", 200),
+    ("/admin/", 200),
+    ("/js/admin.js", 200),
     ("/js/field-meta.js", 200),
     ("/api/health", 200),
+    ("/api/admin/templates", 200),
     ("/api/templates", 200),
     ("/api/templates/mca", 200),
     ("/api/templates/mca/versions", 200),
@@ -56,6 +60,14 @@ def assert_status(response, expected_status, label, failures):
     print(f"{status:3} {label}")
     if status != expected_status:
         failures.append((label, expected_status, status))
+
+
+def assert_json_contains(response, predicate, label, failures):
+    data = response.get_json()
+    matched = predicate(data)
+    print((" OK " if matched else "FAIL") + " " + label)
+    if not matched:
+        failures.append((label, "matching JSON", data))
 
 
 def run_get_tests(client, failures):
@@ -124,7 +136,18 @@ def run_write_tests(failures):
                 "POST /api/templates/test_template/versions while deleted",
                 failures,
             )
+            assert_status(client.get("/api/templates/test_template"), 404, "GET /api/templates/test_template while deleted", failures)
+            assert_status(client.get("/api/templates/test_template/versions"), 200, "GET /api/templates/test_template/versions while deleted", failures)
+            assert_status(client.get("/api/templates/test_template/logs"), 200, "GET /api/templates/test_template/logs while deleted", failures)
             assert_status(client.get("/api/templates?include_inactive=1"), 200, "GET /api/templates?include_inactive=1", failures)
+            admin_response = client.get("/api/admin/templates")
+            assert_status(admin_response, 200, "GET /api/admin/templates after delete", failures)
+            assert_json_contains(
+                admin_response,
+                lambda items: any(item["id"] == "test_template" and item["is_active"] is False for item in items),
+                "GET /api/admin/templates includes deleted template",
+                failures,
+            )
             assert_status(
                 client.post("/api/templates/test_template/restore", json={"reason": "smoke restore"}, headers=LOCAL_HEADERS),
                 200,

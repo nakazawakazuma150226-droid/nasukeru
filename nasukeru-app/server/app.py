@@ -279,6 +279,12 @@ def index():
     return send_from_directory(APP_ROOT, "index.html")
 
 
+@app.get("/admin")
+@app.get("/admin/")
+def admin():
+    return send_from_directory(APP_ROOT, "admin.html")
+
+
 @app.get("/assets/<path:filename>")
 def assets(filename):
     return send_from_directory(APP_ROOT / "assets", filename)
@@ -313,6 +319,38 @@ def get_templates():
             (1 if include_inactive else 0,),
         ).fetchall()
     return jsonify([template_from_row(row) for row in rows])
+
+
+@app.get("/api/admin/templates")
+def get_admin_templates():
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+              t.id,
+              t.label,
+              t.full,
+              t.category,
+              t.is_active,
+              t.status,
+              t.current_version_id,
+              v.version_number AS current_version_number,
+              t.created_at,
+              t.updated_at
+            FROM templates t
+            LEFT JOIN template_versions v ON v.id = t.current_version_id
+            ORDER BY t.display_order, t.label
+            """
+        ).fetchall()
+    return jsonify(
+        [
+            {
+                **template_summary_from_row(row),
+                "current_version_number": row["current_version_number"],
+            }
+            for row in rows
+        ]
+    )
 
 
 @app.post("/api/templates")
@@ -579,7 +617,7 @@ def get_template(template_id):
 def get_template_versions(template_id):
     with connect() as conn:
         template = conn.execute(
-            "SELECT id FROM templates WHERE id = ? AND is_active = 1",
+            "SELECT id FROM templates WHERE id = ?",
             (template_id,),
         ).fetchone()
         if template is None:
@@ -636,7 +674,7 @@ def get_template_version(template_id, version_id):
 def get_template_logs(template_id):
     with connect() as conn:
         template = conn.execute(
-            "SELECT id FROM templates WHERE id = ? AND is_active = 1",
+            "SELECT id FROM templates WHERE id = ?",
             (template_id,),
         ).fetchone()
         if template is None:

@@ -18,6 +18,7 @@
 ```text
 nasukeru-app/
   index.html
+  admin.html
   README.md
   requirements.txt
   .gitignore
@@ -33,6 +34,7 @@ nasukeru-app/
     validation.js
     copy-format.js
     app.js
+    admin.js
   server/
     app.py
     init_db.py
@@ -75,6 +77,7 @@ SQLite DB
 
 - `js/templates.js`
   - Flask API からテンプレート、クイックリスト、安静度選択肢を取得する境界
+  - 管理画面のPOSTでは `X-Nasukeru-Local: 1` ヘッダ付与もここに集約する
 
 - `js/field-meta.js`
   - `data-vkey`, `data-skey`, `data-mmt` と警告・コピー出力用ラベルを対応付ける
@@ -90,6 +93,11 @@ SQLite DB
 - `js/app.js`
   - 画面生成、検索、タブ切り替え、イベント処理
 
+- `js/admin.js`
+  - `/admin` の一覧表示、モーダル、画面バリデーション、管理API呼び出しを制御する
+  - テンプレート追加時は必須キー空文字の schema 雛形を生成する
+  - 編集時は現行 schema を読み込んで新バージョンとして保存する
+
 - `server/init_db.py`
   - SQLite DBを作成し、足りないテーブルと初期テンプレートデータを補う
   - 既存テーブルは削除しない
@@ -104,6 +112,7 @@ SQLite DB
   - Flaskで画面とAPIを配信する
   - 現在のAPI:
     - `GET /api/health`
+    - `GET /api/admin/templates`
     - `GET /api/templates`
     - `GET /api/templates/<id>`
     - `GET /api/templates/<id>/versions`
@@ -117,6 +126,11 @@ SQLite DB
     - `POST /api/templates/<id>/versions`
     - `POST /api/templates/<id>/delete`
     - `POST /api/templates/<id>/restore`
+
+- `admin.html`
+  - ローカル管理用のテンプレート管理画面
+  - `/admin` と `/admin/` で配信される
+  - 新規追加、schema編集、論理削除、復元、履歴・監査ログ閲覧を行う
 
 - `server/smoke_test.py`
   - 主要APIが期待したステータスを返すか確認する
@@ -316,6 +330,9 @@ APIの返却形は既存画面に合わせて維持しています。
 
 ローカル管理用:
 
+- `GET /api/admin/templates`
+  - 管理画面の一覧用に、削除済みを含む全テンプレートのメタ情報を返す
+  - `is_active`, `status`, `current_version_id`, `current_version_number`, `created_at`, `updated_at` を含む
 - `POST /api/templates`
   - テンプレートを追加し、`template_versions` に version 1 を作成する
   - 必須: `id`, `label`, `full`, `category`, `schema`, `change_reason`
@@ -331,6 +348,12 @@ APIの返却形は既存画面に合わせて維持しています。
   - 必須: `reason`
 
 すべての `POST` は `X-Nasukeru-Local: 1` と、`localhost` / `127.0.0.1` / `::1` の `Origin` または `Referer` を必須にしています。これは認証ではなく、ローカル起動中のブラウザ経由攻撃を軽く防ぐためのものです。外部公開や多人数運用を行う場合は、別途認証・権限管理・CSRF対策が必要です。
+
+### 管理画面
+
+`/admin` または `/admin/` でローカル管理画面を開けます。通常画面とは分離しており、テンプレートの追加、schema編集、論理削除、復元、バージョン履歴・監査ログ確認を行います。
+
+管理画面の最小版では `label` / `full` / `category` の既存テンプレート編集は行いません。編集対象は schema の新バージョン作成です。削除済みテンプレートは編集できませんが、履歴と監査ログは確認できます。
 
 ## 運用前の注意
 

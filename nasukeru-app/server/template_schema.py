@@ -3,6 +3,7 @@ import re
 
 TEMPLATE_ID_PATTERN = re.compile(r"^[a-z0-9_-]{1,32}$")
 SCHEMA_ID_PATTERN = re.compile(r"^[a-z0-9_-]{1,32}$")
+COPY_REF_PATTERN = re.compile(r"^[a-z0-9_-]{1,32}\.[a-z0-9_-]{1,32}$")
 SCHEMA_FORMAT_STROKE_V1 = "stroke-v1"
 SCHEMA_FORMAT_GENERIC_V1 = "generic-v1"
 ALLOWED_SCHEMA_FORMATS = (SCHEMA_FORMAT_STROKE_V1, SCHEMA_FORMAT_GENERIC_V1)
@@ -280,15 +281,38 @@ def validate_copy_format(copy_format):
     if not isinstance(lines, list):
         raise SchemaValidationError("copy_format.lines must be an array")
     for index, line in enumerate(lines):
-        require_string(line, f"copy_format.lines[{index}]")
+        validate_copy_line(line, f"copy_format.lines[{index}]")
     return copy_format
+
+
+def validate_copy_line(line, field):
+    if isinstance(line, str):
+        return
+    require_object(line, field)
+    require_keys(line, ("text",), field)
+    require_string(line["text"], f"{field}.text")
+    if "omitIfAllBlank" in line:
+        refs = line["omitIfAllBlank"]
+        if not isinstance(refs, list) or not refs:
+            raise SchemaValidationError(f"{field}.omitIfAllBlank must be a non-empty array")
+        for index, ref in enumerate(refs):
+            if not isinstance(ref, str) or not COPY_REF_PATTERN.fullmatch(ref):
+                raise SchemaValidationError(
+                    f"{field}.omitIfAllBlank[{index}] must match section.field"
+                )
 
 
 def normalize_copy_format(copy_format):
     validate_copy_format(copy_format)
     if copy_format is None:
         return None
-    return ordered_with_known_keys(copy_format, ("format", "lines"))
+    normalized_lines = []
+    for line in copy_format["lines"]:
+        if isinstance(line, str):
+            normalized_lines.append(line)
+        else:
+            normalized_lines.append(ordered_with_known_keys(line, ("text", "omitIfAllBlank")))
+    return ordered_with_known_keys({**copy_format, "lines": normalized_lines}, ("format", "lines"))
 
 
 def validate_template_payload(payload, require_identity=True, require_change_summary=False):

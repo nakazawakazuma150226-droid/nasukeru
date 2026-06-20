@@ -618,6 +618,18 @@ current_version_id: v1 stroke-v1
 - `stroke-v1` は旧バージョン・ロールバック・既存DB互換のため当面残す
 - 通常画面の主経路は `generic-v1` とし、`stroke-v1` 専用描画は互換用として段階的に縮小する
 - `field-meta.js` の固定ラベルは `generic-v1` ではschema側ラベルを優先し、旧 `stroke-v1` 互換処理に限定して使う
+- `copy_format_json` は文字列行を維持しつつ、行オブジェクトで空欄時の行省略を扱う
+
+`text-v1` の行オブジェクト:
+
+```json
+{
+  "text": "皮疹：{{contrast.rash}}",
+  "omitIfAllBlank": ["contrast.rash"]
+}
+```
+
+`omitIfAllBlank` に指定した `section.field` がすべて空欄の場合、その行はコピー出力から省略する。既存の文字列行は従来どおり必ず出力する。
 
 ## 13. テスト方針
 

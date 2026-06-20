@@ -118,7 +118,7 @@ function buildGenericCopyText() {
 function collectGenericValues() {
   var values = {};
   currentCopyCard.querySelectorAll(".generic-input").forEach(function(input) {
-    values[input.dataset.sectionId + "." + input.dataset.fieldId] = input.value || "__";
+    values[input.dataset.sectionId + "." + input.dataset.fieldId] = input.value || "";
   });
   return values;
 }
@@ -129,10 +129,23 @@ function renderCopyLine(line, values) {
   });
 }
 
+function shouldOmitCopyLine(line, values) {
+  if (!line || !Array.isArray(line.omitIfAllBlank)) return false;
+  return line.omitIfAllBlank.every(function(ref) {
+    return !String(values[ref] || "").trim();
+  });
+}
+
 function buildGenericTemplateCopyText(copyFormat) {
   var values = collectGenericValues();
-  var lines = copyFormat.lines.map(function(line) {
-    return renderCopyLine(line, values);
+  var lines = [];
+  copyFormat.lines.forEach(function(line) {
+    if (typeof line === "string") {
+      lines.push(renderCopyLine(line, values));
+      return;
+    }
+    if (shouldOmitCopyLine(line, values)) return;
+    lines.push(renderCopyLine(line.text || "", values));
   });
   document.getElementById("prev").textContent = lines.join("\n");
 }

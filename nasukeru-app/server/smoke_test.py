@@ -83,6 +83,7 @@ GENERIC_COPY_FORMAT = {
     "lines": [
         "Procedure: {{basic.procedure}}",
         "Status: {{basic.status}}",
+        {"text": "Status note: {{basic.status}}", "omitIfAllBlank": ["basic.status"]},
     ],
 }
 
@@ -228,7 +229,8 @@ def run_write_tests(failures):
                 generic_detail,
                 lambda item: item["schema_format"] == "generic-v1"
                 and item["schema"]["schemaFormat"] == "generic-v1"
-                and item["copy_format"]["format"] == "text-v1",
+                and item["copy_format"]["format"] == "text-v1"
+                and item["copy_format"]["lines"][2]["omitIfAllBlank"] == ["basic.status"],
                 "GET /api/admin/templates/generic_test returns generic schema",
                 failures,
             )
@@ -283,6 +285,23 @@ def run_write_tests(failures):
                 client.post("/api/templates", json=invalid_copy_format_payload, headers=LOCAL_HEADERS),
                 400,
                 "POST /api/templates generic-v1 invalid copy_format",
+                failures,
+            )
+
+            invalid_copy_ref_payload = {
+                **generic_payload,
+                "id": "bad_copy_ref",
+                "copy_format": {
+                    "format": "text-v1",
+                    "lines": [
+                        {"text": "Bad: {{basic.status}}", "omitIfAllBlank": ["bad ref"]}
+                    ],
+                },
+            }
+            assert_status(
+                client.post("/api/templates", json=invalid_copy_ref_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v1 invalid copy_format ref",
                 failures,
             )
     finally:

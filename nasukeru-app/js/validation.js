@@ -1,9 +1,9 @@
-﻿function getMissingRequiredItems(card) {
+function getMissingRequiredItems(card) {
   var missing = [];
   var vitals = card.querySelectorAll(".vinput");
-  var vitalLabels = ["JCS","体温","血圧","脈拍","SpO₂"];
-  vitals.forEach(function(v, i) {
-    if (!v.value.trim()) missing.push(vitalLabels[i] || "バイタル");
+  vitals.forEach(function(v) {
+    var meta = FIELD_META.vitals[v.dataset.vkey] || {};
+    if (!v.value.trim()) missing.push(meta.warningLabel || "バイタル");
   });
 
   var nihss = card.querySelector('[data-neuro="nihss"]');
@@ -17,14 +17,9 @@
     if (field && !field.value.trim()) missing.push(item.label);
   });
 
-  var mmtLabels = {
-    ru: "MMT 右上肢",
-    rl: "MMT 右下肢",
-    lu: "MMT 左上肢",
-    ll: "MMT 左下肢"
-  };
   card.querySelectorAll(".mmt-input").forEach(function(input) {
-    if (!input.value.trim()) missing.push(mmtLabels[input.dataset.mmt] || "MMT");
+    var meta = FIELD_META.mmt[input.dataset.mmt] || {};
+    if (!input.value.trim()) missing.push(meta.warningLabel || "MMT");
   });
 
   var restEl = card.querySelector(".rest-opt.on");

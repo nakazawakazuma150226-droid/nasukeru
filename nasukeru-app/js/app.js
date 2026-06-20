@@ -1,4 +1,4 @@
-﻿var currentCard = null;
+var currentCard = null;
 var currentStrokeIdx = 0;
 var strokeTemplates = [];
 var quickTemplates = [];

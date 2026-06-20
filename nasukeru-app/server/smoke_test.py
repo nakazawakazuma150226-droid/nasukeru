@@ -3,6 +3,7 @@ from app import app
 
 EXPECTED = [
     ("/", 200),
+    ("/js/field-meta.js", 200),
     ("/api/health", 200),
     ("/api/templates", 200),
     ("/api/templates/mca", 200),

@@ -29,6 +29,7 @@ nasukeru-app/
     handoff.md
   js/
     templates.js
+    field-meta.js
     validation.js
     copy-format.js
     app.js
@@ -56,9 +57,11 @@ SQLite DB
 - 画面表示と入力操作は `index.html`, `css/`, `js/` が担当する
 - テンプレートや選択肢などのマスターデータは SQLite に置く
 - `js/templates.js` はAPI呼び出しの境界として残し、画面本体の `js/app.js` がDB構造を直接知らないようにする
+- `js/field-meta.js` は入力項目キーと表示・警告・コピー出力用ラベルを対応付ける
 - `server/` はAPI、DB初期化、スモークテストを置くバックエンド領域
 - `server/nasukeru.db` はローカル生成物なのでGitには入れない
-- Flaskの静的配信は `index.html`, `assets/`, `css/`, `js/` のみに限定し、`server/` や `.gitignore` はブラウザから取得できないようにする
+- Flaskは必要な静的ファイルだけをルート定義して配信するホワイトリスト方式にしている
+- 配信対象は `index.html`, `assets/`, `css/`, `js/` で、`server/` や `.gitignore` へのルートは定義しない
 
 ## 各ファイルの役割
 
@@ -71,6 +74,10 @@ SQLite DB
 
 - `js/templates.js`
   - Flask API からテンプレート、クイックリスト、安静度選択肢を取得する境界
+
+- `js/field-meta.js`
+  - `data-vkey`, `data-skey`, `data-mmt` と警告・コピー出力用ラベルを対応付ける
+  - 現時点ではJS内の最小メタ定義とし、DBスキーマへの移譲は将来の整理対象
 
 - `js/validation.js`
   - 未入力警告の判定と表示
@@ -197,6 +204,8 @@ http://127.0.0.1:8000/
 $env:NASUKERU_DEBUG = "1"
 py -3.10 server\app.py
 ```
+
+`NASUKERU_HOST=0.0.0.0` と `NASUKERU_DEBUG=1` を同時に指定しないでください。Flaskのデバッガが外部から到達可能になると、任意コード実行につながる危険があります。
 
 ## 動作確認
 

@@ -1,4 +1,4 @@
-﻿// ── Copy output ──
+// ── Copy output ──
 var currentCopyCard = null;
 function openCov(card) {
   currentCopyCard = card;
@@ -20,10 +20,11 @@ function buildCopyText() {
   // Vitals
   var vitals = currentCopyCard.querySelectorAll(".vinput");
   if (vitals.length) {
-    var keys = ["JCS","T","BP","HR","SpO₂"];
-    var units = ["","℃","mmHg","","%" ];
     var vline = "";
-    vitals.forEach(function(v, i){ vline += keys[i]+(v.value||"__")+units[i]+"　"; });
+    vitals.forEach(function(v) {
+      var meta = FIELD_META.vitals[v.dataset.vkey] || {};
+      vline += (meta.outputLabel || "バイタル") + (v.value || "__") + (meta.unit || "") + "　";
+    });
     lines.push(vline.trim());
     lines.push("");
   }
@@ -31,8 +32,10 @@ function buildCopyText() {
   // Symptoms
   var syms = currentCopyCard.querySelectorAll(".sym-input");
   if (syms.length) {
-    var slabels = ["頭痛","めまい","嘔気"];
-    syms.forEach(function(s,i){ lines.push(slabels[i]+"："+(s.value||"__")); });
+    syms.forEach(function(s) {
+      var meta = FIELD_META.symptoms[s.dataset.skey] || {};
+      lines.push((meta.outputLabel || "症状") + "：" + (s.value || "__"));
+    });
     lines.push("");
   }
 
@@ -45,9 +48,11 @@ function buildCopyText() {
     var mmtGrid = row.querySelector(".mmt-grid");
     if (mmtGrid) {
       var mmtItems = mmtGrid.querySelectorAll(".mmt-input");
-      var mmtLabels = ["右上肢","右下肢","左上肢","左下肢"];
       var mmtLine = "MMT：";
-      mmtItems.forEach(function(m,i){ mmtLine += mmtLabels[i]+(m.value||"__")+"、"; });
+      mmtItems.forEach(function(m) {
+        var meta = FIELD_META.mmt[m.dataset.mmt] || {};
+        mmtLine += (meta.outputLabel || "MMT") + (m.value || "__") + "、";
+      });
       lines.push(mmtLine.replace(/、$/,""));
     } else if (lbl && val) {
       var lblText = lbl.textContent.trim();

@@ -104,7 +104,8 @@ def main():
                     assert conn.execute("SELECT status FROM template_versions WHERE id = ?", (version_id,)).fetchone()[0] == "published"
 
                 after_count = conn.execute("SELECT COUNT(*) FROM template_versions").fetchone()[0]
-                assert after_count == before_count + 6
+                # MCA/PCA/brainstem/neuro_common change. ACA and lacunar are intentionally unchanged.
+                assert after_count == before_count + 4
 
             assert apply_template_fixes(db_path) is False
             with init_db.connect(db_path) as conn:

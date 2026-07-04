@@ -296,7 +296,6 @@ function openCreateModal() {
   var form = document.createElement("form");
   form.className = "admin-form";
   var schemaFormatField = formSelect("schema形式", "schema_format", DEFAULT_NEW_SCHEMA_FORMAT, [
-    { value: "stroke-v1", label: "stroke-v1" },
     { value: "generic-v1", label: "generic-v1" }
   ]);
   var genericSchemaField = formField("generic-v1 schema JSON", "generic_schema_json", JSON.stringify(defaultGenericSchema(), null, 2), { textarea: true, rows: 10 });

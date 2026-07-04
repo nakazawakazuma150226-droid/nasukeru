@@ -1,3 +1,4 @@
+import copy
 import os
 import tempfile
 from pathlib import Path
@@ -56,6 +57,11 @@ BASE_SCHEMA = {
 }
 
 
+NON_EMPTY_BASE_SCHEMA = copy.deepcopy(BASE_SCHEMA)
+NON_EMPTY_BASE_SCHEMA["vitals"]["jcs"] = "0"
+NON_EMPTY_BASE_SCHEMA["rest"] = "bed rest"
+
+
 GENERIC_SCHEMA = {
     "schemaFormat": "generic-v1",
     "sections": [
@@ -85,6 +91,45 @@ GENERIC_COPY_FORMAT = {
         "Status: {{basic.status}}",
         {"text": "Status note: {{basic.status}}", "omitIfAllBlank": ["basic.status"]},
         {"text": "{{basic.status}}", "splitLinesFrom": "basic.status", "omitIfAllBlank": ["basic.status"]},
+    ],
+}
+
+
+EXTENDED_GENERIC_SCHEMA = {
+    "schemaFormat": "generic-v1",
+    "sections": [
+        {
+            "id": "observe",
+            "label": "Observe",
+            "fields": [
+                {
+                    "id": "symptoms",
+                    "label": "Symptoms",
+                    "type": "multi_select",
+                    "options": ["headache", "nausea"],
+                    "allowEmpty": True,
+                },
+                {
+                    "id": "drainage",
+                    "label": "Drainage",
+                    "type": "number",
+                    "min": 0,
+                    "max": 999,
+                    "step": 1,
+                    "unit": "ml",
+                    "allowEmpty": True,
+                },
+            ],
+        }
+    ],
+}
+
+
+EXTENDED_GENERIC_COPY_FORMAT = {
+    "format": "text-v1",
+    "lines": [
+        "Symptoms: {{observe.symptoms}}",
+        "Drainage: {{observe.drainage}}ml",
     ],
 }
 
@@ -317,6 +362,30 @@ def run_write_tests(failures):
             assert_status(client.post("/api/templates", json=create_payload), 403, "POST /api/templates without local guard", failures)
             bad_id_payload = {**create_payload, "id": "../bad"}
             assert_status(client.post("/api/templates", json=bad_id_payload, headers=LOCAL_HEADERS), 400, "POST /api/templates invalid id", failures)
+            unknown_stroke_schema = copy.deepcopy(BASE_SCHEMA)
+            unknown_stroke_schema["vitals"]["rr"] = ""
+            unknown_stroke_payload = {
+                **create_payload,
+                "id": "bad_stroke_unknown",
+                "schema": unknown_stroke_schema,
+            }
+            assert_status(
+                client.post("/api/templates", json=unknown_stroke_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates stroke-v1 unknown schema key",
+                failures,
+            )
+            non_empty_create_payload = {
+                **create_payload,
+                "id": "bad_initial",
+                "schema": NON_EMPTY_BASE_SCHEMA,
+            }
+            assert_status(
+                client.post("/api/templates", json=non_empty_create_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates stroke-v1 non-empty initial values",
+                failures,
+            )
             assert_status(client.post("/api/templates", json=create_payload, headers=LOCAL_HEADERS), 201, "POST /api/templates", failures)
             assert_status(client.post("/api/templates", json=create_payload, headers=LOCAL_HEADERS), 409, "POST /api/templates duplicate", failures)
             assert_status(client.get("/api/templates/test_template"), 200, "GET /api/templates/test_template", failures)
@@ -326,11 +395,21 @@ def run_write_tests(failures):
                 "change_summary": "smoke update",
                 "change_reason": "smoke edit",
             }
+            non_empty_update_payload = {
+                **update_payload,
+                "schema": NON_EMPTY_BASE_SCHEMA,
+            }
             missing_reason = {"schema": BASE_SCHEMA, "change_summary": "smoke update"}
             assert_status(
                 client.post("/api/templates/test_template/versions", json=missing_reason, headers=LOCAL_HEADERS),
                 400,
                 "POST /api/templates/test_template/versions missing reason",
+                failures,
+            )
+            assert_status(
+                client.post("/api/templates/test_template/versions", json=non_empty_update_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates/test_template/versions stroke-v1 non-empty initial values",
                 failures,
             )
             assert_status(
@@ -428,6 +507,32 @@ def run_write_tests(failures):
                 failures,
             )
 
+            extended_generic_payload = {
+                "id": "generic_extended",
+                "label": "EXT",
+                "full": "Generic extended",
+                "category": "procedure",
+                "schema": EXTENDED_GENERIC_SCHEMA,
+                "copy_format": EXTENDED_GENERIC_COPY_FORMAT,
+                "change_reason": "smoke create extended generic",
+            }
+            assert_status(
+                client.post("/api/templates", json=extended_generic_payload, headers=LOCAL_HEADERS),
+                201,
+                "POST /api/templates generic-v1 multi_select number",
+                failures,
+            )
+            extended_detail = client.get("/api/admin/templates/generic_extended")
+            assert_status(extended_detail, 200, "GET /api/admin/templates/generic_extended", failures)
+            assert_json_contains(
+                extended_detail,
+                lambda item: item["schema"]["sections"][0]["fields"][0]["type"] == "multi_select"
+                and item["schema"]["sections"][0]["fields"][1]["type"] == "number"
+                and item["schema"]["sections"][0]["fields"][1]["unit"] == "ml",
+                "GET /api/admin/templates/generic_extended returns extended field types",
+                failures,
+            )
+
             invalid_generic_payload = {
                 **generic_payload,
                 "id": "bad_generic",
@@ -451,6 +556,48 @@ def run_write_tests(failures):
                 failures,
             )
 
+            invalid_multi_select_payload = copy.deepcopy(generic_payload)
+            invalid_multi_select_payload["id"] = "bad_multi_select"
+            invalid_multi_select_payload["schema"] = {
+                "schemaFormat": "generic-v1",
+                "sections": [
+                    {
+                        "id": "observe",
+                        "label": "Observe",
+                        "fields": [
+                            {"id": "symptoms", "label": "Symptoms", "type": "multi_select"}
+                        ],
+                    }
+                ],
+            }
+            assert_status(
+                client.post("/api/templates", json=invalid_multi_select_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v1 invalid multi_select options",
+                failures,
+            )
+
+            invalid_number_payload = copy.deepcopy(generic_payload)
+            invalid_number_payload["id"] = "bad_number"
+            invalid_number_payload["schema"] = copy.deepcopy(EXTENDED_GENERIC_SCHEMA)
+            invalid_number_payload["schema"]["sections"][0]["fields"][1]["step"] = 0
+            assert_status(
+                client.post("/api/templates", json=invalid_number_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v1 invalid number step",
+                failures,
+            )
+
+            unknown_generic_payload = copy.deepcopy(generic_payload)
+            unknown_generic_payload["id"] = "bad_generic_unknown"
+            unknown_generic_payload["schema"]["sections"][0]["fields"][0]["unexpected"] = ""
+            assert_status(
+                client.post("/api/templates", json=unknown_generic_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v1 unknown schema key",
+                failures,
+            )
+
             invalid_copy_format_payload = {
                 **generic_payload,
                 "id": "bad_copy_format",
@@ -460,6 +607,40 @@ def run_write_tests(failures):
                 client.post("/api/templates", json=invalid_copy_format_payload, headers=LOCAL_HEADERS),
                 400,
                 "POST /api/templates generic-v1 invalid copy_format",
+                failures,
+            )
+
+            unknown_copy_format_payload = {
+                **generic_payload,
+                "id": "bad_copy_unknown",
+                "copy_format": {
+                    "format": "text-v1",
+                    "lines": [
+                        {"text": "Status: {{basic.status}}", "unexpected": ""}
+                    ],
+                },
+            }
+            assert_status(
+                client.post("/api/templates", json=unknown_copy_format_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v1 unknown copy_format key",
+                failures,
+            )
+
+            missing_copy_ref_payload = {
+                **generic_payload,
+                "id": "bad_copy_missing_ref",
+                "copy_format": {
+                    "format": "text-v1",
+                    "lines": [
+                        "Missing: {{basic.missing}}"
+                    ],
+                },
+            }
+            assert_status(
+                client.post("/api/templates", json=missing_copy_ref_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v1 missing copy_format ref",
                 failures,
             )
 

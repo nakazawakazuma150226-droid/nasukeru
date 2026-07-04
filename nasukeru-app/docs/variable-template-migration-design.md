@@ -209,19 +209,19 @@ validate_template_schema(schema)
 
 ### 5.4 初期対応するfield type
 
-段階1で対応:
+現在対応済み:
 
 - `text`
 - `textarea`
 - `select`
+- `number`
+- `multi_select`
 
 段階2以降の候補:
 
-- `number`
 - `datetime`
 - `time`
 - `checkbox`
-- `multi_select`
 - `radio`
 - `computed`
 - `conditional`
@@ -614,7 +614,7 @@ current_version_id: v1 stroke-v1
 
 方針:
 
-- 新規テンプレート追加の初期選択は `generic-v1` とする
+- 新規テンプレート追加は `generic-v1` 固定とする
 - `stroke-v1` は旧バージョン・ロールバック・既存DB互換のため当面残す
 - 通常画面の主経路は `generic-v1` とし、`stroke-v1` 専用描画は互換用として段階的に縮小する
 - `field-meta.js` の固定ラベルは `generic-v1` ではschema側ラベルを優先し、旧 `stroke-v1` 互換処理に限定して使う

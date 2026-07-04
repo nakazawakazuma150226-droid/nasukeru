@@ -14,12 +14,16 @@
 - DB: SQLite
 - テンプレート形式: `generic-v1` が主経路
 - 旧形式: `stroke-v1` は履歴・後方互換用として残す
+- 管理画面の新規追加は `generic-v1` 固定。`stroke-v1` の新規作成は画面から選ばせない
 
 重要方針:
 
 - AI生成は使わない
 - 患者情報や入力内容は保存しない
 - 入力初期値は空欄
+- 書き込みAPIでも、`stroke-v1` の初期値入りschemaは400で拒否する
+- schema / copy_format の未知キーは400で拒否する
+- `copy_format` の参照は `generic-v1` schema に存在するfieldだけ許可する
 - 未入力警告は出すがコピーは止めない
 - テンプレート編集はバージョン追加で行い、既存バージョンを上書きしない
 - 削除は論理削除
@@ -41,7 +45,7 @@ DB初期化後の標準テンプレートは脳梗塞5件です。
 - `C:\Users\kazum\Downloads\ナスケル_脳卒中共通テンプレート_エンジニア向け (1).txt`
 - `C:\Users\kazum\Downloads\慢性硬膜下血腫_ナスケル用テンプレート_エンジニア共有.txt`
 
-これらを取り込む前に、まず `generic-v2` の設計を行う予定です。初期スコープは `multi_select` と `number` の追加に絞る方針です。条件分岐、状況グループ、派生出力は次フェーズです。
+これらを取り込む前段として、`generic-v1` に `multi_select` と `number` を追加済みです。条件分岐、状況グループ、派生出力は次フェーズです。
 
 ## 3. 重要なマイグレーション
 
@@ -101,9 +105,6 @@ DB初期化後の標準テンプレートは脳梗塞5件です。
 - `text`
 - `textarea`
 - `select`
-
-次に追加予定:
-
 - `multi_select`
 - `number`
 
@@ -144,7 +145,8 @@ DB初期化後の標準テンプレートは脳梗塞5件です。
 - `js/templates.js`: API呼び出し境界
 - `js/app.js`: 通常画面描画。`generic-v1` 動的描画を担当
 - `js/admin.js`: 管理画面。現状、`generic-v1` schema/copy_format はJSON編集が中心
-- `js/copy-format.js`: コピー出力生成。`text-v1`, `omitIfAllBlank`, `splitLinesFrom` 対応
+- `js/copy-format.js`: DOM入力値収集とコピーUI
+- `js/copy-renderer.js`: `text-v1`, `omitIfAllBlank`, `splitLinesFrom` の純粋関数renderer
 - `js/validation.js`: 未入力警告
 - `js/field-meta.js`: 旧 `stroke-v1` 互換用の固定ラベル
 
@@ -209,11 +211,9 @@ DB初期化後の標準テンプレートは脳梗塞5件です。
 
 推奨順序:
 
-1. 現在の互換修正をレビューし、問題なければGitHubへpushする
-2. `generic-v2` 設計を起こす
-3. `generic-v2` の最初の実装は `multi_select` と `number` に絞る
-4. 脳卒中共通テンプレートを `generic-v2` で追加できるか検討する
-5. 慢性硬膜下血腫テンプレートは条件分岐が必要なので、次フェーズで扱う
+1. 脳卒中共通テンプレートを `generic-v1` で追加できるか検討する
+2. 慢性硬膜下血腫テンプレートは条件分岐が必要なので、次フェーズで扱う
+3. 管理画面のJSON編集をフォーム型テンプレートビルダーへ寄せる
 
 ## 9. 検証コマンド
 
@@ -227,8 +227,10 @@ JS構文チェック:
 ```powershell
 & 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check js\app.js
 & 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check js\admin.js
+& 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check js\copy-renderer.js
 & 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check js\copy-format.js
 & 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check js\validation.js
+& 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --test tests\copy-renderer.test.js
 ```
 
 DB初期化:

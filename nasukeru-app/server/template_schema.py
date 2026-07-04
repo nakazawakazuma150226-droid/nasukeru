@@ -4,10 +4,11 @@ import re
 TEMPLATE_ID_PATTERN = re.compile(r"^[a-z0-9_-]{1,32}$")
 SCHEMA_ID_PATTERN = re.compile(r"^[a-z0-9_-]{1,32}$")
 COPY_REF_PATTERN = re.compile(r"^[a-z0-9_-]{1,32}\.[a-z0-9_-]{1,32}$")
+COPY_PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([a-z0-9_-]+)\.([a-z0-9_-]+)\s*\}\}")
 SCHEMA_FORMAT_STROKE_V1 = "stroke-v1"
 SCHEMA_FORMAT_GENERIC_V1 = "generic-v1"
 ALLOWED_SCHEMA_FORMATS = (SCHEMA_FORMAT_STROKE_V1, SCHEMA_FORMAT_GENERIC_V1)
-ALLOWED_GENERIC_FIELD_TYPES = ("text", "textarea", "select")
+ALLOWED_GENERIC_FIELD_TYPES = ("text", "textarea", "select", "multi_select", "number")
 COPY_FORMAT_TEXT_V1 = "text-v1"
 
 REQUIRED_VITAL_KEYS = ("jcs", "t", "bp", "hr", "spo2")
@@ -59,6 +60,12 @@ def require_keys(obj, keys, field):
         raise SchemaValidationError(f"{field} missing: {', '.join(missing)}")
 
 
+def reject_unknown_keys(obj, allowed_keys, field):
+    unknown = [key for key in obj if key not in allowed_keys]
+    if unknown:
+        raise SchemaValidationError(f"{field} has unknown keys: {', '.join(unknown)}")
+
+
 def require_schema_id(value, field):
     if not isinstance(value, str) or not SCHEMA_ID_PATTERN.fullmatch(value):
         raise SchemaValidationError(f"{field} must match ^[a-z0-9_-]{{1,32}}$")
@@ -108,12 +115,16 @@ def validate_template_schema(schema):
 def validate_stroke_v1_schema(schema):
     require_object(schema, "schema")
 
+    reject_unknown_keys(schema, ("schemaFormat", "vitals", "symptoms", "neuro", "rest"), "schema")
     require_keys(schema, ("vitals", "symptoms", "neuro", "rest"), "schema")
     vitals = require_object(schema["vitals"], "schema.vitals")
     symptoms = require_object(schema["symptoms"], "schema.symptoms")
     neuro = require_object(schema["neuro"], "schema.neuro")
     require_string(schema["rest"], "schema.rest")
 
+    reject_unknown_keys(vitals, REQUIRED_VITAL_KEYS, "schema.vitals")
+    reject_unknown_keys(symptoms, REQUIRED_SYMPTOM_KEYS, "schema.symptoms")
+    reject_unknown_keys(neuro, REQUIRED_NEURO_KEYS, "schema.neuro")
     validate_string_map(vitals, REQUIRED_VITAL_KEYS, "schema.vitals")
     validate_string_map(symptoms, REQUIRED_SYMPTOM_KEYS, "schema.symptoms")
     require_keys(neuro, REQUIRED_NEURO_KEYS, "schema.neuro")
@@ -124,12 +135,32 @@ def validate_stroke_v1_schema(schema):
         require_string(neuro[key], f"schema.neuro.{key}")
 
     mmt = require_object(neuro["mmt"], "schema.neuro.mmt")
+    reject_unknown_keys(mmt, REQUIRED_MMT_KEYS, "schema.neuro.mmt")
     validate_string_map(mmt, REQUIRED_MMT_KEYS, "schema.neuro.mmt")
     return schema
 
 
 def validate_generic_field(field, section_field, used_ids):
     require_object(field, section_field)
+    reject_unknown_keys(
+        field,
+        (
+            "id",
+            "label",
+            "type",
+            "options",
+            "allowEmpty",
+            "requiredWarning",
+            "placeholder",
+            "helpText",
+            "displayOrder",
+            "unit",
+            "min",
+            "max",
+            "step",
+        ),
+        section_field,
+    )
     require_keys(field, ("id", "label", "type"), section_field)
 
     field_id = require_schema_id(field["id"], f"{section_field}.id")
@@ -150,10 +181,17 @@ def validate_generic_field(field, section_field, used_ids):
     require_optional_bool(field, "allowEmpty", section_field)
     require_optional_bool(field, "requiredWarning", section_field)
     require_optional_number(field, "displayOrder", section_field)
+    require_optional_number(field, "min", section_field)
+    require_optional_number(field, "max", section_field)
+    require_optional_number(field, "step", section_field)
+    if "min" in field and "max" in field and field["min"] > field["max"]:
+        raise SchemaValidationError(f"{section_field}.min must be less than or equal to max")
+    if "step" in field and field["step"] <= 0:
+        raise SchemaValidationError(f"{section_field}.step must be greater than 0")
 
-    if field_type == "select":
+    if field_type in ("select", "multi_select"):
         if "options" not in field:
-            raise SchemaValidationError(f"{section_field}.options is required for select")
+            raise SchemaValidationError(f"{section_field}.options is required for {field_type}")
         options = field["options"]
         if not isinstance(options, list) or not options:
             raise SchemaValidationError(f"{section_field}.options must be a non-empty array")
@@ -169,6 +207,7 @@ def validate_generic_field(field, section_field, used_ids):
 
 def validate_generic_v1_schema(schema):
     require_object(schema, "schema")
+    reject_unknown_keys(schema, ("schemaFormat", "sections"), "schema")
     require_keys(schema, ("schemaFormat", "sections"), "schema")
     if schema["schemaFormat"] != SCHEMA_FORMAT_GENERIC_V1:
         raise SchemaValidationError("schema.schemaFormat must be generic-v1")
@@ -181,6 +220,11 @@ def validate_generic_v1_schema(schema):
     for section_index, section in enumerate(sections):
         section_field = f"schema.sections[{section_index}]"
         require_object(section, section_field)
+        reject_unknown_keys(
+            section,
+            ("id", "label", "displayOrder", "helpText", "fields"),
+            section_field,
+        )
         require_keys(section, ("id", "label", "fields"), section_field)
 
         section_id = require_schema_id(section["id"], f"{section_field}.id")
@@ -254,6 +298,9 @@ def normalize_generic_v1_schema(schema):
                         "helpText",
                         "displayOrder",
                         "unit",
+                        "min",
+                        "max",
+                        "step",
                     ),
                 )
             )
@@ -269,10 +316,43 @@ def normalize_generic_v1_schema(schema):
     )
 
 
+def iter_stroke_v1_values(schema):
+    for key in REQUIRED_VITAL_KEYS:
+        yield f"schema.vitals.{key}", schema["vitals"][key]
+    for key in REQUIRED_SYMPTOM_KEYS:
+        yield f"schema.symptoms.{key}", schema["symptoms"][key]
+    neuro = schema["neuro"]
+    for key in REQUIRED_NEURO_KEYS:
+        if key == "mmt":
+            continue
+        yield f"schema.neuro.{key}", neuro[key]
+    for key in REQUIRED_MMT_KEYS:
+        yield f"schema.neuro.mmt.{key}", neuro["mmt"][key]
+    yield "schema.rest", schema["rest"]
+
+
+def enforce_empty_initial_values(schema):
+    if schema_format(schema) != SCHEMA_FORMAT_STROKE_V1:
+        return
+    non_empty_fields = [
+        field
+        for field, value in iter_stroke_v1_values(schema)
+        if isinstance(value, str) and value.strip()
+    ]
+    if non_empty_fields:
+        preview = ", ".join(non_empty_fields[:5])
+        if len(non_empty_fields) > 5:
+            preview += ", ..."
+        raise SchemaValidationError(
+            f"stroke-v1 initial values must be empty: {preview}"
+        )
+
+
 def validate_copy_format(copy_format):
     if copy_format is None:
         return None
     require_object(copy_format, "copy_format")
+    reject_unknown_keys(copy_format, ("format", "lines"), "copy_format")
     require_keys(copy_format, ("format", "lines"), "copy_format")
     fmt = require_text(copy_format["format"], "copy_format.format")
     if fmt != COPY_FORMAT_TEXT_V1:
@@ -289,6 +369,7 @@ def validate_copy_line(line, field):
     if isinstance(line, str):
         return
     require_object(line, field)
+    reject_unknown_keys(line, ("text", "splitLinesFrom", "omitIfAllBlank"), field)
     require_keys(line, ("text",), field)
     require_string(line["text"], f"{field}.text")
     if "splitLinesFrom" in line:
@@ -319,7 +400,54 @@ def normalize_copy_format(copy_format):
     return ordered_with_known_keys({**copy_format, "lines": normalized_lines}, ("format", "lines"))
 
 
-def validate_template_payload(payload, require_identity=True, require_change_summary=False):
+def collect_generic_field_refs(schema):
+    if schema_format(schema) != SCHEMA_FORMAT_GENERIC_V1:
+        return set()
+    refs = set()
+    for section in schema["sections"]:
+        section_id = section["id"]
+        for field in section["fields"]:
+            refs.add(f"{section_id}.{field['id']}")
+    return refs
+
+
+def iter_copy_line_refs(line):
+    text = line if isinstance(line, str) else line.get("text", "")
+    for match in COPY_PLACEHOLDER_PATTERN.finditer(text):
+        yield f"{match.group(1)}.{match.group(2)}"
+    if isinstance(line, dict):
+        split_ref = line.get("splitLinesFrom")
+        if split_ref:
+            yield split_ref
+        for ref in line.get("omitIfAllBlank", []):
+            yield ref
+
+
+def validate_copy_format_references(schema, copy_format):
+    if copy_format is None or schema_format(schema) != SCHEMA_FORMAT_GENERIC_V1:
+        return
+    allowed_refs = collect_generic_field_refs(schema)
+    unknown_refs = []
+    for line in copy_format["lines"]:
+        for ref in iter_copy_line_refs(line):
+            if ref not in allowed_refs:
+                unknown_refs.append(ref)
+    if unknown_refs:
+        unique_refs = []
+        for ref in unknown_refs:
+            if ref not in unique_refs:
+                unique_refs.append(ref)
+        raise SchemaValidationError(
+            f"copy_format references unknown schema fields: {', '.join(unique_refs)}"
+        )
+
+
+def validate_template_payload(
+    payload,
+    require_identity=True,
+    require_change_summary=False,
+    enforce_empty_defaults=True,
+):
     require_object(payload, "payload")
     result = {}
     if require_identity:
@@ -329,7 +457,10 @@ def validate_template_payload(payload, require_identity=True, require_change_sum
         result["category"] = require_text(payload.get("category"), "category")
 
     result["schema"] = normalize_schema(payload.get("schema"))
+    if enforce_empty_defaults:
+        enforce_empty_initial_values(result["schema"])
     result["copy_format"] = normalize_copy_format(payload.get("copy_format"))
+    validate_copy_format_references(result["schema"], result["copy_format"])
 
     if require_change_summary:
         result["change_summary"] = require_text(payload.get("change_summary"), "change_summary")

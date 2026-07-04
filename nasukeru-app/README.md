@@ -33,9 +33,12 @@ nasukeru-app/
     templates.js
     field-meta.js
     validation.js
+    copy-renderer.js
     copy-format.js
     app.js
     admin.js
+  tests/
+    copy-renderer.test.js
   server/
     app.py
     init_db.py
@@ -88,8 +91,12 @@ SQLite DB
   - 未入力警告の判定と表示
 
 - `js/copy-format.js`
-  - コピー出力文の生成
+  - 画面入力値を集めてコピー出力文を生成
   - クリップボードコピー
+
+- `js/copy-renderer.js`
+  - `copy_format_json` からテキストを生成する純粋関数
+  - Nodeテストで `omitIfAllBlank` / `splitLinesFrom` / 空欄置換を検証
 
 - `js/app.js`
   - 画面生成、検索、タブ切り替え、イベント処理
@@ -152,6 +159,7 @@ SQLite DB
 
 - `schemaFormat` が無い既存テンプレートは `stroke-v1` として扱う
 - `generic-v1` は `sections` と `fields` を持つ可変schemaとして保存できる
+- `generic-v1` の field type は `text` / `textarea` / `select` / `multi_select` / `number`
 - 通常入力画面は `stroke-v1` を従来タブUI、`generic-v1` を section/field ベースの動的UIとして表示する
 - `generic-v1` の入力初期値は安全側で空欄にする
 - `generic-v1` のコピー出力は `copy_format_json` の `text-v1` 形式を優先する
@@ -160,8 +168,9 @@ SQLite DB
 - `text-v1` の各行は文字列、または `{ "text": "...", "omitIfAllBlank": ["section.field"], "splitLinesFrom": "section.field" }` の行オブジェクトで定義できる
 - `omitIfAllBlank` は指定した入力がすべて空欄のとき、その行をコピー出力から省略する
 - `splitLinesFrom` は指定した入力を改行で分割し、空行を除いて複数行として出力する
+- `copy_format` の参照先は `generic-v1` schema に存在する field のみ許可する
 - 複雑な条件分岐や高度な整形は次フェーズで設計・実装する
-- 管理画面の新規追加は `generic-v1` を初期選択し、必要時のみ `stroke-v1` を選べる
+- 管理画面の新規追加は `generic-v1` 固定とし、`stroke-v1` は旧バージョン・後方互換用として残す
 
 脳梗塞5テンプレートは `generic-v1` へ移行済みです。共通項目に加えて、MCA/ACA/PCA/ラクナ/脳幹ごとの個別観察項目を空欄フィールドとして持ちます。既存の `stroke-v1` 版は履歴に残し、DB初期化時のマイグレーション `004` で新バージョンとして適用します。マイグレーション `005` では、既存stroke項目だけを入力した場合に旧 `stroke-v1` のコピー出力と一致する `copy_format_json` へ更新します。
 
@@ -262,6 +271,12 @@ py -3.10 server\app.py
 
 ```powershell
 py -3.10 server\smoke_test.py
+```
+
+コピー出力rendererの単体テスト:
+
+```powershell
+& 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --test tests\copy-renderer.test.js
 ```
 
 ヘルスチェックだけ確認する場合:

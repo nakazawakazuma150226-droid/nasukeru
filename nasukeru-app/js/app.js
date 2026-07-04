@@ -206,6 +206,14 @@ function renderGenericBody(body, schema) {
   });
 }
 
+function applyGenericInputMeta(input, section, field) {
+  input.dataset.sectionId = section.id;
+  input.dataset.sectionLabel = section.label;
+  input.dataset.fieldId = field.id;
+  input.dataset.fieldLabel = field.label;
+  input.dataset.requiredWarning = field.requiredWarning ? "true" : "false";
+}
+
 function makeGenericField(section, field) {
   var row = document.createElement("div"); row.className = "nrow";
   var lbl = document.createElement("div"); lbl.className = "nlabel"; lbl.textContent = field.label;
@@ -227,20 +235,58 @@ function makeGenericField(section, field) {
       option.textContent = opt;
       input.appendChild(option);
     });
+  } else if (field.type === "multi_select") {
+    input = document.createElement("input");
+    input.type = "hidden";
+    input.className = "generic-input";
+    input.value = "";
+    applyGenericInputMeta(input, section, field);
+    var group = document.createElement("div");
+    group.className = "generic-multi";
+    (field.options || []).forEach(function(opt) {
+      var item = document.createElement("label");
+      item.className = "generic-multi-option";
+      var checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = opt;
+      var text = document.createElement("span");
+      text.textContent = opt;
+      checkbox.addEventListener("change", function() {
+        var values = [];
+        group.querySelectorAll("input[type='checkbox']:checked").forEach(function(checked) {
+          values.push(checked.value);
+        });
+        input.value = values.join("、");
+      });
+      item.appendChild(checkbox);
+      item.appendChild(text);
+      group.appendChild(item);
+    });
+    row.appendChild(lbl);
+    row.appendChild(group);
+    row.appendChild(input);
+    return row;
   } else {
     input = document.createElement("input");
-    input.type = "text";
+    input.type = field.type === "number" ? "number" : "text";
     input.className = "nval generic-input";
+    if (field.type === "number") {
+      if (typeof field.min === "number") input.min = String(field.min);
+      if (typeof field.max === "number") input.max = String(field.max);
+      if (typeof field.step === "number") input.step = String(field.step);
+    }
   }
   input.value = "";
   input.placeholder = field.placeholder || "";
-  input.dataset.sectionId = section.id;
-  input.dataset.sectionLabel = section.label;
-  input.dataset.fieldId = field.id;
-  input.dataset.fieldLabel = field.label;
-  input.dataset.requiredWarning = field.requiredWarning ? "true" : "false";
+  applyGenericInputMeta(input, section, field);
   row.appendChild(lbl);
   row.appendChild(input);
+  if (field.unit) {
+    var unit = document.createElement("span");
+    unit.className = "generic-unit";
+    unit.textContent = field.unit;
+    row.appendChild(unit);
+  }
   return row;
 }
 

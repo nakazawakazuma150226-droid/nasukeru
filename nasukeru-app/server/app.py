@@ -10,9 +10,11 @@ from flask import Flask, jsonify, request, send_from_directory
 from template_schema import (
     SchemaValidationError,
     detect_high_risk_changes,
+    normalize_copy_format,
     normalize_schema,
     schema_format as get_schema_format,
     validate_template_payload,
+    validate_copy_format_references,
 )
 
 
@@ -112,6 +114,8 @@ def version_from_row(row, include_schema=False):
         "approved_by": row["approved_by"],
         "approved_at": row["approved_at"],
     }
+    if "status" in row.keys():
+        version["status"] = row["status"]
     if include_schema:
         schema = parse_json_value(row["schema_json"])
         schema = normalize_db_template_schema(schema)
@@ -270,6 +274,39 @@ def fetch_template_state(conn, template_id):
         """,
         (template_id,),
     ).fetchone()
+
+
+def fetch_template_version_state(conn, template_id, version_id):
+    return conn.execute(
+        """
+        SELECT
+          id,
+          template_id,
+          version_number,
+          schema_json,
+          copy_format_json,
+          change_summary,
+          change_reason,
+          created_by,
+          created_at,
+          approved_by,
+          approved_at,
+          status
+        FROM template_versions
+        WHERE template_id = ? AND id = ?
+        """,
+        (template_id, version_id),
+    ).fetchone()
+
+
+def validate_version_definition(row):
+    schema = normalize_db_template_schema(parse_json_value(row["schema_json"]))
+    try:
+        copy_format = normalize_copy_format(parse_json_value(row["copy_format_json"]))
+        validate_copy_format_references(schema, copy_format)
+    except SchemaValidationError as error:
+        raise TemplateValidationError(str(error)) from error
+    return schema, copy_format
 
 
 def admin_template_detail_from_row(row):
@@ -479,8 +516,8 @@ def create_template():
             """
             INSERT INTO template_versions
               (template_id, version_number, schema_json, copy_format_json,
-               change_summary, change_reason, created_by, created_at, approved_by, approved_at)
-            VALUES (?, 1, ?, ?, ?, ?, 'local', ?, 'local', ?)
+               change_summary, change_reason, created_by, created_at, approved_by, approved_at, status)
+            VALUES (?, 1, ?, ?, ?, ?, 'local', ?, 'local', ?, 'published')
             """,
             (
                 validated["id"],
@@ -571,8 +608,8 @@ def create_template_version(template_id):
             """
             INSERT INTO template_versions
               (template_id, version_number, schema_json, copy_format_json,
-               change_summary, change_reason, created_by, created_at, approved_by, approved_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'local', ?, 'local', ?)
+               change_summary, change_reason, created_by, created_at, approved_by, approved_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'local', ?, NULL, NULL, 'draft')
             """,
             (
                 template_id,
@@ -582,23 +619,14 @@ def create_template_version(template_id):
                 validated["change_summary"],
                 validated["change_reason"],
                 timestamp,
-                timestamp,
             ),
         )
         version_id = cursor.lastrowid
-        conn.execute(
-            """
-            UPDATE templates
-            SET schema_json = ?, current_version_id = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (schema_json, version_id, timestamp, template_id),
-        )
         insert_audit_log(
             conn,
             template_id,
             version_id,
-            "update",
+            "create_draft",
             timestamp,
             validated["change_reason"],
             before={
@@ -622,6 +650,223 @@ def create_template_version(template_id):
             "ok": True,
             "template_id": template_id,
             "version_id": version_id,
+            "version_number": version_number,
+            "status": "draft",
+            "high_risk_changes": high_risk_changes,
+        }
+    ), 201
+
+
+@app.post("/api/templates/<template_id>/versions/<int:version_id>/publish")
+def publish_template_version(template_id, version_id):
+    payload = require_json_body()
+    reason = require_reason(payload)
+    timestamp = now_iso()
+    conn = connect()
+    try:
+        conn.execute("BEGIN")
+        template = fetch_template_state(conn, template_id)
+        if template is None:
+            return jsonify({"ok": False, "error": "template not found"}), 404
+        if not template["is_active"]:
+            raise TemplateStateError("deleted template cannot be published")
+        target = fetch_template_version_state(conn, template_id, version_id)
+        if target is None:
+            return jsonify({"ok": False, "error": "template version not found"}), 404
+        if target["status"] != "draft":
+            raise TemplateStateError("only draft versions can be published")
+
+        target_schema, target_copy_format = validate_version_definition(target)
+        before_schema = normalize_db_template_schema(parse_json_value(template["current_schema_json"]))
+        before_copy_format = parse_json_value(template["current_copy_format_json"])
+        high_risk_changes = detect_high_risk_changes(
+            before_schema,
+            target_schema,
+            before_copy_format,
+            target_copy_format,
+        )
+        if high_risk_changes and payload.get("confirm_high_risk") is not True:
+            conn.rollback()
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "high risk changes require confirmation",
+                    "high_risk_changes": high_risk_changes,
+                }
+            ), 409
+
+        conn.execute(
+            """
+            UPDATE template_versions
+            SET status = 'retired'
+            WHERE template_id = ? AND status = 'published' AND id <> ?
+            """,
+            (template_id, version_id),
+        )
+        conn.execute(
+            """
+            UPDATE template_versions
+            SET status = 'published', approved_by = 'local', approved_at = ?
+            WHERE id = ? AND template_id = ?
+            """,
+            (timestamp, version_id, template_id),
+        )
+        schema_json = json_dumps(target_schema)
+        conn.execute(
+            """
+            UPDATE templates
+            SET schema_json = ?, current_version_id = ?, updated_at = ?, status = 'published'
+            WHERE id = ?
+            """,
+            (schema_json, version_id, timestamp, template_id),
+        )
+        insert_audit_log(
+            conn,
+            template_id,
+            version_id,
+            "publish",
+            timestamp,
+            reason,
+            before={
+                "schema": parse_json_value(template["current_schema_json"]),
+                "copy_format": before_copy_format,
+                "current_version_id": template["current_version_id"],
+            },
+            after={
+                "schema": target_schema,
+                "copy_format": target_copy_format,
+                "current_version_id": version_id,
+            },
+            diff={"high_risk_changes": high_risk_changes},
+        )
+        summary = fetch_template_summary(conn, template_id)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return jsonify({"ok": True, "template": summary, "high_risk_changes": high_risk_changes})
+
+
+@app.post("/api/templates/<template_id>/versions/<int:version_id>/rollback")
+def rollback_template_version(template_id, version_id):
+    payload = require_json_body()
+    reason = require_reason(payload)
+    timestamp = now_iso()
+    conn = connect()
+    try:
+        conn.execute("BEGIN")
+        template = fetch_template_state(conn, template_id)
+        if template is None:
+            return jsonify({"ok": False, "error": "template not found"}), 404
+        if not template["is_active"]:
+            raise TemplateStateError("deleted template cannot be rolled back")
+        source = fetch_template_version_state(conn, template_id, version_id)
+        if source is None:
+            return jsonify({"ok": False, "error": "template version not found"}), 404
+        if template["current_version_id"] == version_id:
+            raise TemplateStateError("template is already using this version")
+
+        source_schema, source_copy_format = validate_version_definition(source)
+        before_schema = normalize_db_template_schema(parse_json_value(template["current_schema_json"]))
+        before_copy_format = parse_json_value(template["current_copy_format_json"])
+        high_risk_changes = detect_high_risk_changes(
+            before_schema,
+            source_schema,
+            before_copy_format,
+            source_copy_format,
+        )
+        if high_risk_changes and payload.get("confirm_high_risk") is not True:
+            conn.rollback()
+            return jsonify(
+                {
+                    "ok": False,
+                    "error": "high risk changes require confirmation",
+                    "high_risk_changes": high_risk_changes,
+                }
+            ), 409
+
+        version_number = conn.execute(
+            """
+            SELECT COALESCE(MAX(version_number), 0) + 1
+            FROM template_versions
+            WHERE template_id = ?
+            """,
+            (template_id,),
+        ).fetchone()[0]
+        schema_json = json_dumps(source_schema)
+        copy_format_json = json_dumps(source_copy_format) if source_copy_format is not None else None
+        cursor = conn.execute(
+            """
+            INSERT INTO template_versions
+              (template_id, version_number, schema_json, copy_format_json,
+               change_summary, change_reason, created_by, created_at, approved_by, approved_at, status)
+            VALUES (?, ?, ?, ?, ?, ?, 'local', ?, 'local', ?, 'published')
+            """,
+            (
+                template_id,
+                version_number,
+                schema_json,
+                copy_format_json,
+                f"Rollback to v{source['version_number']}",
+                reason,
+                timestamp,
+                timestamp,
+            ),
+        )
+        new_version_id = cursor.lastrowid
+        conn.execute(
+            """
+            UPDATE template_versions
+            SET status = 'retired'
+            WHERE template_id = ? AND status = 'published' AND id <> ?
+            """,
+            (template_id, new_version_id),
+        )
+        conn.execute(
+            """
+            UPDATE templates
+            SET schema_json = ?, current_version_id = ?, updated_at = ?, status = 'published'
+            WHERE id = ?
+            """,
+            (schema_json, new_version_id, timestamp, template_id),
+        )
+        insert_audit_log(
+            conn,
+            template_id,
+            new_version_id,
+            "rollback_publish",
+            timestamp,
+            reason,
+            before={
+                "schema": parse_json_value(template["current_schema_json"]),
+                "copy_format": before_copy_format,
+                "current_version_id": template["current_version_id"],
+            },
+            after={
+                "schema": source_schema,
+                "copy_format": source_copy_format,
+                "current_version_id": new_version_id,
+            },
+            diff={
+                "source_version_id": version_id,
+                "high_risk_changes": high_risk_changes,
+            },
+        )
+        summary = fetch_template_summary(conn, template_id)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return jsonify(
+        {
+            "ok": True,
+            "template": summary,
+            "source_version_id": version_id,
+            "version_id": new_version_id,
             "version_number": version_number,
             "high_risk_changes": high_risk_changes,
         }
@@ -747,7 +992,8 @@ def get_template_versions(template_id):
               created_by,
               created_at,
               approved_by,
-            approved_at
+              approved_at,
+              status
             FROM template_versions
             WHERE template_id = ?
             ORDER BY version_number DESC
@@ -773,7 +1019,8 @@ def get_template_version(template_id, version_id):
               created_by,
               created_at,
               approved_by,
-              approved_at
+              approved_at,
+              status
             FROM template_versions
             WHERE template_id = ? AND id = ?
             """,

@@ -347,3 +347,62 @@ Gate:
 Next:
 
 - Phase 8 Version Integrity / Publication Workflow
+
+## Phase 8: Version Integrity / Publication Workflow
+
+Status: PASS
+
+Base: `0da7e8a`
+
+Implemented:
+
+- `template_versions.status` を追加
+  - `draft`
+  - `published`
+  - `retired`
+- 既存DB初期化時に、現在版を `published`、非現在版を `retired` へ正規化
+- SQLite triggerで `templates.current_version_id` が同じtemplateの `published` versionだけを指せるようにした
+- `POST /api/templates/<id>/versions` を下書き作成に変更
+  - `templates.current_version_id` は変更しない
+  - 通常画面には即反映しない
+- `POST /api/templates/<id>/versions/<version_id>/publish` を追加
+  - draftをpublished化
+  - 旧publishedをretired化
+  - `templates.current_version_id` を切り替え
+  - 高リスク変更は `confirm_high_risk: true` がない場合409
+- `POST /api/templates/<id>/versions/<version_id>/rollback` を追加
+  - 過去versionへ直接pointerを戻さず、過去version内容から新しいpublished versionを作成
+  - 公開履歴の時系列を維持
+- 管理画面の履歴にstatus表示、公開、復元公開操作を追加
+- README / handoff に公開version管理の現行仕様を追記
+
+Tests:
+
+- Python compile PASS
+- JS syntax check PASS
+- copy renderer unit test PASS
+- generic value unit test PASS
+- condition engine unit test PASS
+- safety rules unit test PASS
+- smoke test PASS
+  - draft作成
+  - draft作成でcurrent不変
+  - publishでcurrent切替
+  - publish後のstale base_version_id 409
+  - rollback publish
+  - current_version_id triggerが別template version参照を拒否
+  - 高リスクpublishは確認なし409、確認あり200
+
+Review:
+
+- Critical: 0
+- High: 0
+- Medium: 0
+
+Gate:
+
+- PASS
+
+Next:
+
+- Phase 9 Legacy Cleanup / Deprecation

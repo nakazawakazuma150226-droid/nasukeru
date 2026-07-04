@@ -566,7 +566,7 @@ async function openEditModal(item) {
         });
         closeModal();
         await loadAdminTemplates();
-        toast("新しいバージョンを作成しました", "#2d7a3a");
+        toast("下書きバージョンを作成しました。履歴から公開できます", "#2d7a3a");
       } catch (error) {
         setModalError(showErrorForApi(error));
       }
@@ -637,6 +637,70 @@ function buildSmallTable(headers, rows) {
   return table;
 }
 
+function versionStatusLabel(status, item, version) {
+  if (item.current_version_id === version.id) return "公開中";
+  if (status === "draft") return "下書き";
+  if (status === "published") return "公開";
+  if (status === "retired") return "退役";
+  return status || "-";
+}
+
+function highRiskSummary(changes) {
+  return (changes || []).map(function(change) {
+    return change.message || change.code;
+  }).join("\n");
+}
+
+async function runVersionPublicationAction(item, version, mode) {
+  var isPublish = mode === "publish";
+  var reason = window.prompt(isPublish ? "公開理由を入力してください" : "復元公開理由を入力してください", "");
+  if (!reason || !reason.trim()) return;
+  async function submit(confirmHighRisk) {
+    if (isPublish) return publishTemplateVersion(item.id, version.id, reason.trim(), confirmHighRisk);
+    return rollbackTemplateVersion(item.id, version.id, reason.trim(), confirmHighRisk);
+  }
+  try {
+    await submit(false);
+  } catch (error) {
+    var changes = error.data && error.data.high_risk_changes;
+    if (error.status === 409 && changes && changes.length) {
+      var ok = window.confirm("高リスク変更があります。確認して続行しますか？\n\n" + highRiskSummary(changes));
+      if (!ok) return;
+      await submit(true);
+    } else {
+      throw error;
+    }
+  }
+  closeModal();
+  await loadAdminTemplates();
+  toast(isPublish ? "バージョンを公開しました" : "復元公開版を作成しました", "#2d7a3a");
+}
+
+function versionActionCell(item, version) {
+  var wrap = document.createElement("div");
+  wrap.className = "admin-actions";
+  if (!item.is_active) return wrap;
+  if (version.status === "draft") {
+    wrap.appendChild(button("公開", "btn bg admin-row-btn", async function() {
+      try {
+        await runVersionPublicationAction(item, version, "publish");
+      } catch (error) {
+        setModalError(showErrorForApi(error));
+      }
+    }));
+  }
+  if (item.current_version_id !== version.id && version.status !== "draft") {
+    wrap.appendChild(button("復元公開", "btn bg admin-row-btn", async function() {
+      try {
+        await runVersionPublicationAction(item, version, "rollback");
+      } catch (error) {
+        setModalError(showErrorForApi(error));
+      }
+    }));
+  }
+  return wrap;
+}
+
 async function openHistoryModal(item) {
   openModal("履歴", item.label + " / " + item.full);
   var body = $("admin-modal-body");
@@ -667,14 +731,16 @@ async function openHistoryModal(item) {
       });
       return [
         "v" + version.version_number,
+        versionStatusLabel(version.status, item, version),
         version.change_summary || "",
         version.change_reason || "",
         formatDate(version.created_at),
-        detailBtn
+        detailBtn,
+        versionActionCell(item, version)
       ];
     });
     var versionSection = formSection("バージョン履歴");
-    versionSection.appendChild(buildSmallTable(["版", "概要", "理由", "作成日時", "詳細"], versionRows));
+    versionSection.appendChild(buildSmallTable(["版", "状態", "概要", "理由", "作成日時", "詳細", "操作"], versionRows));
     versionSection.appendChild(detailBox);
     body.appendChild(versionSection);
 

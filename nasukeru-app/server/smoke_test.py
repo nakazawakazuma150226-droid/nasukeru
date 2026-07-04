@@ -1,5 +1,6 @@
 import copy
 import os
+import sqlite3
 import tempfile
 from pathlib import Path
 
@@ -209,6 +210,21 @@ def assert_json_contains(response, predicate, label, failures):
         failures.append((label, "matching JSON", data))
 
 
+def assert_current_version_integrity(db_path, failures):
+    with sqlite3.connect(db_path) as conn:
+        wrong_version_id = conn.execute("SELECT current_version_id FROM templates WHERE id = 'mca'").fetchone()[0]
+        try:
+            conn.execute(
+                "UPDATE templates SET current_version_id = ? WHERE id = 'test_template'",
+                (wrong_version_id,),
+            )
+            conn.commit()
+            failures.append(("current_version_id trigger rejects foreign version", "IntegrityError", "updated"))
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            print(" OK  current_version_id trigger rejects foreign version")
+
+
 def render_template_line(text, values, override_ref=None, override_value=None):
     import re
 
@@ -379,7 +395,8 @@ def run_write_tests(failures):
     original_db_path = os.environ.get("NASUKERU_DB_PATH")
     try:
         with tempfile.TemporaryDirectory() as tmp:
-            os.environ["NASUKERU_DB_PATH"] = str(Path(tmp) / "nasukeru-test.db")
+            db_path = Path(tmp) / "nasukeru-test.db"
+            os.environ["NASUKERU_DB_PATH"] = str(db_path)
             init_db_main()
 
             client = app.test_client()
@@ -541,14 +558,45 @@ def run_write_tests(failures):
                 "POST /api/templates/test_template/versions stroke-v1 non-empty initial values",
                 failures,
             )
+            draft_response = client.post("/api/templates/test_template/versions", json=update_payload, headers=LOCAL_HEADERS)
             assert_status(
-                client.post("/api/templates/test_template/versions", json=update_payload, headers=LOCAL_HEADERS),
+                draft_response,
                 201,
-                "POST /api/templates/test_template/versions",
+                "POST /api/templates/test_template/versions draft",
+                failures,
+            )
+            draft_json = draft_response.get_json() or {}
+            draft_version_id = draft_json.get("version_id")
+            assert_json_contains(
+                draft_response,
+                lambda item: item["status"] == "draft",
+                "POST /api/templates/test_template/versions returns draft",
                 failures,
             )
             updated_detail = client.get("/api/admin/templates/test_template")
-            assert_status(updated_detail, 200, "GET /api/admin/templates/test_template after update", failures)
+            assert_status(updated_detail, 200, "GET /api/admin/templates/test_template after draft", failures)
+            assert_json_contains(
+                updated_detail,
+                lambda item: item["current_version_id"] == base_version_id,
+                "draft does not change current_version_id",
+                failures,
+            )
+            versions_after_draft = client.get("/api/templates/test_template/versions")
+            assert_status(versions_after_draft, 200, "GET /api/templates/test_template/versions after draft", failures)
+            assert_json_contains(
+                versions_after_draft,
+                lambda items: any(item["id"] == draft_version_id and item["status"] == "draft" for item in items),
+                "GET versions includes draft status",
+                failures,
+            )
+            publish_response = client.post(
+                f"/api/templates/test_template/versions/{draft_version_id}/publish",
+                json={"reason": "smoke publish"},
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(publish_response, 200, "POST /api/templates/test_template/versions/<id>/publish", failures)
+            updated_detail = client.get("/api/admin/templates/test_template")
+            assert_status(updated_detail, 200, "GET /api/admin/templates/test_template after publish", failures)
             current_version_id = (updated_detail.get_json() or {}).get("current_version_id")
             stale_update_payload = {
                 **update_payload,
@@ -560,6 +608,16 @@ def run_write_tests(failures):
                 "POST /api/templates/test_template/versions stale base_version_id",
                 failures,
             )
+            rollback_response = client.post(
+                f"/api/templates/test_template/versions/{base_version_id}/rollback",
+                json={"reason": "smoke rollback"},
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(rollback_response, 201, "POST /api/templates/test_template/versions/<id>/rollback", failures)
+            rolled_detail = client.get("/api/admin/templates/test_template")
+            assert_status(rolled_detail, 200, "GET /api/admin/templates/test_template after rollback", failures)
+            current_version_id = (rolled_detail.get_json() or {}).get("current_version_id")
+            assert_current_version_integrity(db_path, failures)
             latest_update_payload = {
                 **update_payload,
                 "base_version_id": current_version_id,
@@ -733,6 +791,29 @@ def run_write_tests(failures):
                 lambda item: any(change["code"] == "field_deleted" for change in item["high_risk_changes"])
                 and any(change["code"] == "copy_line_deleted" for change in item["high_risk_changes"]),
                 "POST /api/templates/generic_v2_test/versions returns high risk changes",
+                failures,
+            )
+            risky_version_id = (risky_update.get_json() or {}).get("version_id")
+            risky_publish_without_confirm = client.post(
+                f"/api/templates/generic_v2_test/versions/{risky_version_id}/publish",
+                json={"reason": "smoke risky publish"},
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(
+                risky_publish_without_confirm,
+                409,
+                "POST /api/templates/generic_v2_test/versions/<id>/publish requires high risk confirmation",
+                failures,
+            )
+            risky_publish_confirmed = client.post(
+                f"/api/templates/generic_v2_test/versions/{risky_version_id}/publish",
+                json={"reason": "smoke risky publish", "confirm_high_risk": True},
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(
+                risky_publish_confirmed,
+                200,
+                "POST /api/templates/generic_v2_test/versions/<id>/publish confirmed",
                 failures,
             )
 

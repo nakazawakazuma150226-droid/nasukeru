@@ -92,6 +92,8 @@ DB初期化後の標準テンプレートは6件です。
 - `GET /api/admin/templates/<id>`
 - `POST /api/templates`
 - `POST /api/templates/<id>/versions`
+- `POST /api/templates/<id>/versions/<version_id>/publish`
+- `POST /api/templates/<id>/versions/<version_id>/rollback`
 - `POST /api/templates/<id>/delete`
 - `POST /api/templates/<id>/restore`
 - `GET /api/templates/<id>/versions`
@@ -126,4 +128,3 @@ py -3.10 server\smoke_test.py
 & 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check js\validation.js
 & 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --test tests\copy-renderer.test.js
 ```
-

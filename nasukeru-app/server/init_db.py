@@ -542,6 +542,7 @@ def ensure_schema(conn):
           created_at TEXT NOT NULL,
           approved_by TEXT,
           approved_at TEXT,
+          status TEXT NOT NULL DEFAULT 'published',
           FOREIGN KEY (template_id) REFERENCES templates(id),
           UNIQUE (template_id, version_number)
         );
@@ -624,10 +625,48 @@ def ensure_schema(conn):
     )
     ensure_column(conn, "templates", "current_version_id", "INTEGER")
     ensure_column(conn, "templates", "status", "TEXT NOT NULL DEFAULT 'published'")
+    ensure_column(conn, "template_versions", "status", "TEXT NOT NULL DEFAULT 'published'")
     ensure_column(conn, "quick_templates", "target_type", "TEXT")
     ensure_column(conn, "quick_templates", "target_id", "TEXT")
     ensure_column(conn, "search_keywords", "target_type", "TEXT")
     ensure_column(conn, "search_keywords", "target_id", "TEXT")
+    ensure_current_version_triggers(conn)
+
+
+def ensure_current_version_triggers(conn):
+    conn.executescript(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_templates_current_version_insert
+        BEFORE INSERT ON templates
+        FOR EACH ROW
+        WHEN NEW.current_version_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM template_versions
+            WHERE id = NEW.current_version_id
+              AND template_id = NEW.id
+              AND status = 'published'
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'current_version_id must reference a published version of the same template');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_templates_current_version_update
+        BEFORE UPDATE OF current_version_id ON templates
+        FOR EACH ROW
+        WHEN NEW.current_version_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM template_versions
+            WHERE id = NEW.current_version_id
+              AND template_id = NEW.id
+              AND status = 'published'
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'current_version_id must reference a published version of the same template');
+        END;
+        """
+    )
 
 
 def ensure_column(conn, table, column, definition):
@@ -1115,6 +1154,32 @@ def seed_template_groups(conn, now):
             )
 
 
+def normalize_template_version_statuses(conn):
+    conn.execute(
+        """
+        UPDATE template_versions
+        SET status = 'published'
+        WHERE id IN (
+          SELECT current_version_id
+          FROM templates
+          WHERE current_version_id IS NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        UPDATE template_versions
+        SET status = 'retired'
+        WHERE id NOT IN (
+          SELECT current_version_id
+          FROM templates
+          WHERE current_version_id IS NOT NULL
+        )
+        AND status = 'published'
+        """
+    )
+
+
 def main():
     validate_seed_data()
     now = datetime.now(timezone.utc).isoformat()
@@ -1129,6 +1194,7 @@ def main():
         migrate_stroke_templates_to_generic(conn, now)
         migrate_stroke_copy_format_to_compat(conn, now)
         migrate_add_neuro_common_template(conn, now)
+        normalize_template_version_statuses(conn)
         seed_template_groups(conn, now)
         seed_rest_options(conn)
         seed_quick_templates(conn)

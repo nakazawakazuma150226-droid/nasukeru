@@ -83,6 +83,20 @@ async function createTemplateVersion(id, payload) {
   return postJson("/api/templates/" + encodeURIComponent(id) + "/versions", payload);
 }
 
+async function publishTemplateVersion(id, versionId, reason, confirmHighRisk) {
+  return postJson(
+    "/api/templates/" + encodeURIComponent(id) + "/versions/" + encodeURIComponent(versionId) + "/publish",
+    { reason: reason, confirm_high_risk: Boolean(confirmHighRisk) }
+  );
+}
+
+async function rollbackTemplateVersion(id, versionId, reason, confirmHighRisk) {
+  return postJson(
+    "/api/templates/" + encodeURIComponent(id) + "/versions/" + encodeURIComponent(versionId) + "/rollback",
+    { reason: reason, confirm_high_risk: Boolean(confirmHighRisk) }
+  );
+}
+
 async function deleteTemplate(id, reason) {
   return postJson("/api/templates/" + encodeURIComponent(id) + "/delete", { reason: reason });
 }

@@ -23,6 +23,17 @@ test("parses blank number as null", () => {
   assert.equal(values.isBlankValue(parsed), true);
 });
 
+test("normalizes full-width number input", () => {
+  assert.equal(values.normalizeNumberInput("　３８．５　"), "38.5");
+  assert.equal(values.normalizeNumberInput("－５"), "-5");
+  assert.equal(values.normalizeNumberInput("ー５"), "-5");
+});
+
+test("parses normalized full-width number", () => {
+  const parsed = values.parseInputValue(input("number", "３８．５"));
+  assert.equal(parsed, 38.5);
+});
+
 test("parses multi_select as an array", () => {
   const parsed = values.parseInputValue(input("multi_select", "headache、nausea"));
   assert.deepEqual(parsed, ["headache", "nausea"]);

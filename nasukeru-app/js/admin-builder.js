@@ -103,6 +103,61 @@
     return refs;
   }
 
+  function placeholderRefs(text) {
+    var refs = [];
+    String(text || "").replace(/\{\{\s*([a-z0-9_-]+)\.([a-z0-9_-]+)\s*\}\}/g, function(match, sectionId, fieldId) {
+      refs.push(sectionId + "." + fieldId);
+      return match;
+    });
+    return refs;
+  }
+
+  function copyOutputRefs(copyFormat) {
+    var refs = {};
+    (copyFormat.lines || []).forEach(function(line) {
+      var lineObj = typeof line === "string" ? { text: line } : line;
+      placeholderRefs(lineObj.text || "").forEach(function(ref) { refs[ref] = true; });
+      if (lineObj.splitLinesFrom) refs[lineObj.splitLinesFrom] = true;
+    });
+    return refs;
+  }
+
+  function unreferencedWarnings(schema, copyFormat) {
+    if (!schema || !copyFormat || ["generic-v1", "generic-v2"].indexOf(schema.schemaFormat) < 0) return [];
+    var outputRefs = copyOutputRefs(copyFormat);
+    var warnings = [];
+    (schema.sections || []).forEach(function(section) {
+      (section.fields || []).forEach(function(field) {
+        var ref = section.id + "." + field.id;
+        if (outputRefs[ref]) return;
+        var label = (section.label || section.id) + " > " + (field.label || field.id) + (field.visibleIf ? "（条件付き表示）" : "");
+        warnings.push("入力項目『" + label + "』はコピー出力に含まれていません");
+      });
+    });
+    return warnings;
+  }
+
+  function renderWarnings(root, warnings) {
+    var box = root.querySelector(".admin-builder-warnings");
+    if (!box) return;
+    box.innerHTML = "";
+    if (!warnings.length) {
+      box.classList.remove("show");
+      return;
+    }
+    var title = el("div", "warn-title", "コピー出力に含まれない入力項目があります");
+    var list = document.createElement("ul");
+    list.className = "warn-list";
+    warnings.forEach(function(warning) {
+      var item = document.createElement("li");
+      item.textContent = warning;
+      list.appendChild(item);
+    });
+    box.appendChild(title);
+    box.appendChild(list);
+    box.classList.add("show");
+  }
+
   function updateRefSelects(root) {
     var refs = refsFromBuilder(root);
     root.querySelectorAll(".builder-ref-select").forEach(function(sel) {
@@ -383,7 +438,9 @@
     copySection.appendChild(el("div", "admin-builder-copy-lines"));
     root.appendChild(copySection);
     var preview = el("pre", "admin-json admin-builder-preview");
+    var warningsBox = el("div", "admin-alert admin-builder-warnings");
     root.appendChild(preview);
+    root.appendChild(warningsBox);
     container.appendChild(root);
 
     (schema.sections || []).forEach(function(section) { addSection(root, section); });
@@ -406,12 +463,16 @@
     function refresh() {
       updateRefSelects(root);
       try {
+        var schema = collectSchema(root, options.schemaFormat && options.schemaFormat());
+        var copyFormat = collectCopyFormat(root);
         preview.textContent = JSON.stringify({
-          schema: collectSchema(root, options.schemaFormat && options.schemaFormat()),
-          copy_format: collectCopyFormat(root),
+          schema: schema,
+          copy_format: copyFormat,
         }, null, 2);
+        renderWarnings(root, unreferencedWarnings(schema, copyFormat));
       } catch (error) {
         preview.textContent = error.message;
+        renderWarnings(root, []);
       }
     }
     refresh();

@@ -444,3 +444,61 @@ Gate:
 Next:
 
 - 慢性硬膜下血腫テンプレートなど、`generic-v2` 前提の新規テンプレート取り込み設計
+
+## Phase 10: Residual Safety / Admin Warning Refinement
+
+Status: PASS
+
+Base: `615e7af`
+
+Implemented:
+
+- copy_format参照収集を出力参照と制御参照へ分離
+  - 出力参照: placeholder / `splitLinesFrom`
+  - 制御参照: `omitIfAllBlank` / `showIf` condition field
+  - 既存のunknown ref検証は両方の和集合を使い、400挙動は維持
+- `generic-v1` / `generic-v2` の未参照フィールド警告を追加
+  - `POST /api/templates` と `POST /api/templates/<id>/versions` の201レスポンスに `warnings` を付与
+  - `GET /api/admin/templates/<id>` と version詳細に導出 `warnings` を付与
+  - publishはブロックしない
+  - `omitIfAllBlank` だけに現れるfieldは、値が出力されないため未参照として警告
+- 管理画面に未参照警告を表示
+  - 詳細/編集画面
+  - 下書き作成・新規作成後のトースト
+  - Template Builderのライブプレビュー
+- number fieldの通常画面入力を `type=text` + `inputmode=decimal` に変更
+  - 全角数字、全角ピリオド、全角マイナス、前後空白を正規化
+  - `min` / `max` / `step` はdatasetに保持し、既存の安全判定へ渡す
+- 小規模サーバ改善
+  - `MAX_CONTENT_LENGTH = 1MB` と413ハンドラを追加
+  - `sqlite3.Error` とDB未準備/health失敗の生detailをレスポンスから除去しログ出力へ変更
+  - `NASUKERU_HOST` がlocalhost系以外の場合、`NASUKERU_ALLOW_EXTERNAL=1` が無ければ起動拒否
+
+Tests:
+
+- Python compile PASS
+- JS syntax check PASS
+- copy renderer unit test PASS
+- generic value unit test PASS
+- condition engine unit test PASS
+- safety rules unit test PASS
+- smoke test PASS
+  - unreferenced warning
+  - omit-only control ref warning
+  - generic-v2 conditional unreferenced warning
+  - copy_format null no warning
+  - payload too large 413
+
+Review:
+
+- Critical: 0
+- High: 0
+- Medium: 0
+
+Gate:
+
+- PASS
+
+Next:
+
+- 慢性硬膜下血腫テンプレートなど、`generic-v2` 前提の新規テンプレート取り込み設計

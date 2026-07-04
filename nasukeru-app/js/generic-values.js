@@ -23,11 +23,29 @@
       return splitMultiValue(raw);
     }
     if (fieldType === "number") {
+      raw = normalizeNumberInput(raw);
       if (!raw.trim()) return null;
       var parsed = Number(raw);
       return Number.isFinite(parsed) ? parsed : raw;
     }
     return raw;
+  }
+
+  function normalizeNumberInput(value) {
+    return String(value || "")
+      .replace(/[０-９]/g, function(ch) {
+        return String.fromCharCode(ch.charCodeAt(0) - 0xfee0);
+      })
+      .replace(/[．]/g, ".")
+      .replace(/[－ー−]/g, "-")
+      .replace(/　/g, " ")
+      .trim();
+  }
+
+  function normalizeNumberField(input) {
+    if (!input || input.dataset.fieldType !== "number") return;
+    var normalized = normalizeNumberInput(input.value);
+    if (input.value !== normalized) input.value = normalized;
   }
 
   function isBlankValue(value) {
@@ -94,6 +112,8 @@
     formatInputValueForCopy: formatInputValueForCopy,
     isBlankValue: isBlankValue,
     parseInputValue: parseInputValue,
+    normalizeNumberField: normalizeNumberField,
+    normalizeNumberInput: normalizeNumberInput,
     splitMultiValue: splitMultiValue,
   };
 });

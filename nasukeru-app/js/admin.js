@@ -159,6 +159,37 @@ function setModalError(message) {
   el.classList.toggle("show", Boolean(message));
 }
 
+function warningMessages(warnings) {
+  return (warnings || []).map(function(warning) {
+    return warning.message || warning;
+  });
+}
+
+function appendWarnings(parent, warnings) {
+  var messages = warningMessages(warnings);
+  if (!messages.length) return;
+  var box = document.createElement("div");
+  box.className = "admin-alert show";
+  var title = document.createElement("div");
+  title.className = "warn-title";
+  title.textContent = "コピー出力に含まれない入力項目があります";
+  var list = document.createElement("ul");
+  list.className = "warn-list";
+  messages.forEach(function(message) {
+    var item = document.createElement("li");
+    item.textContent = message;
+    list.appendChild(item);
+  });
+  box.appendChild(title);
+  box.appendChild(list);
+  parent.appendChild(box);
+}
+
+function showWarningsToast(warnings) {
+  var count = warningMessages(warnings).length;
+  if (count) toast("保存しました。未参照フィールド警告 " + count + " 件があります", "#c05621");
+}
+
 function openModal(title, subtitle) {
   $("admin-modal-title").textContent = title || "";
   $("admin-modal-subtitle").textContent = subtitle || "";
@@ -380,7 +411,7 @@ function openCreateModal() {
       }
     }
     try {
-      await createTemplate({
+      var result = await createTemplate({
         id: id,
         label: label,
         full: full,
@@ -391,7 +422,8 @@ function openCreateModal() {
       });
       closeModal();
       await loadAdminTemplates();
-      toast("テンプレートを追加しました", "#2d7a3a");
+      if (result && result.warnings && result.warnings.length) showWarningsToast(result.warnings);
+      else toast("テンプレートを追加しました", "#2d7a3a");
     } catch (error) {
       setModalError(showErrorForApi(error));
     }
@@ -530,6 +562,7 @@ async function openEditModal(item) {
     form.appendChild(formField("分類", "category", item.category, { readonly: true }));
     form.appendChild(formField("schema形式", "schema_format", detail.schema_format || "stroke-v1", { readonly: true }));
     if (isGeneric) {
+      appendWarnings(form, detail.warnings);
       appendGenericEditor(form, schema, detail.copy_format, function(){ return collectText(form, "schema_format"); });
     } else {
       appendSchemaFields(form, schema, restOptions);
@@ -557,7 +590,7 @@ async function openEditModal(item) {
         return;
       }
       try {
-        await createTemplateVersion(item.id, {
+        var result = await createTemplateVersion(item.id, {
           base_version_id: detail.current_version_id,
           schema: nextSchema,
           copy_format: nextCopyFormat,
@@ -566,7 +599,8 @@ async function openEditModal(item) {
         });
         closeModal();
         await loadAdminTemplates();
-        toast("下書きバージョンを作成しました。履歴から公開できます", "#2d7a3a");
+        if (result && result.warnings && result.warnings.length) showWarningsToast(result.warnings);
+        else toast("下書きバージョンを作成しました。履歴から公開できます", "#2d7a3a");
       } catch (error) {
         setModalError(showErrorForApi(error));
       }
@@ -721,6 +755,7 @@ async function openHistoryModal(item) {
         try {
           var detail = await getTemplateVersion(item.id, version.id);
           clearNode(detailBox);
+          appendWarnings(detailBox, detail.warnings);
           detailBox.appendChild(renderJsonBlock({
             schema: detail.schema,
             copy_format: detail.copy_format

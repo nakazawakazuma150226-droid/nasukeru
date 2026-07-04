@@ -492,6 +492,17 @@ def run_write_tests(failures):
             assert_status(client.post("/api/templates", json=create_payload), 403, "POST /api/templates without local guard", failures)
             bad_id_payload = {**create_payload, "id": "../bad"}
             assert_status(client.post("/api/templates", json=bad_id_payload, headers=LOCAL_HEADERS), 400, "POST /api/templates invalid id", failures)
+            assert_status(
+                client.post(
+                    "/api/templates",
+                    data="x" * (1024 * 1024 + 1),
+                    content_type="application/json",
+                    headers=LOCAL_HEADERS,
+                ),
+                413,
+                "POST /api/templates payload too large",
+                failures,
+            )
             unknown_stroke_schema = copy.deepcopy(BASE_SCHEMA)
             unknown_stroke_schema["vitals"]["rr"] = ""
             unknown_stroke_payload = {
@@ -674,10 +685,12 @@ def run_write_tests(failures):
                 "copy_format": GENERIC_COPY_FORMAT,
                 "change_reason": "smoke create generic",
             }
-            assert_status(
-                client.post("/api/templates", json=generic_payload, headers=LOCAL_HEADERS),
-                201,
-                "POST /api/templates generic-v1",
+            generic_create_response = client.post("/api/templates", json=generic_payload, headers=LOCAL_HEADERS)
+            assert_status(generic_create_response, 201, "POST /api/templates generic-v1", failures)
+            assert_json_contains(
+                generic_create_response,
+                lambda item: not item.get("warnings"),
+                "POST /api/templates generic-v1 no unreferenced warnings",
                 failures,
             )
             generic_detail = client.get("/api/admin/templates/generic_test")
@@ -689,7 +702,8 @@ def run_write_tests(failures):
                 and item["schema"]["sections"][0]["fields"][1]["options"][0] == {"value": "none", "label": "なし"}
                 and item["copy_format"]["format"] == "text-v1"
                 and item["copy_format"]["lines"][2]["omitIfAllBlank"] == ["basic.status"]
-                and item["copy_format"]["lines"][3]["splitLinesFrom"] == "basic.status",
+                and item["copy_format"]["lines"][3]["splitLinesFrom"] == "basic.status"
+                and item["warnings"] == [],
                 "GET /api/admin/templates/generic_test returns generic schema",
                 failures,
             )
@@ -709,6 +723,57 @@ def run_write_tests(failures):
                 templates_response,
                 lambda items: any(item["id"] == "generic_test" and item["schema_format"] == "generic-v1" for item in items),
                 "GET /api/templates includes generic-v1",
+                failures,
+            )
+
+            unreferenced_payload = copy.deepcopy(generic_payload)
+            unreferenced_payload["id"] = "generic_unref"
+            unreferenced_payload["copy_format"] = {"format": "text-v1", "lines": ["Procedure: {{basic.procedure}}"]}
+            unreferenced_response = client.post("/api/templates", json=unreferenced_payload, headers=LOCAL_HEADERS)
+            assert_status(unreferenced_response, 201, "POST /api/templates generic-v1 unreferenced warning", failures)
+            assert_json_contains(
+                unreferenced_response,
+                lambda item: any(
+                    warning["fieldRef"] == "basic.status" and "Basic > Status" in warning["message"]
+                    for warning in item.get("warnings", [])
+                ),
+                "POST /api/templates generic-v1 returns unreferenced warning",
+                failures,
+            )
+            assert_json_contains(
+                client.get("/api/admin/templates/generic_unref"),
+                lambda item: any(warning["fieldRef"] == "basic.status" for warning in item.get("warnings", [])),
+                "GET /api/admin/templates/generic_unref returns unreferenced warning",
+                failures,
+            )
+
+            omit_only_payload = copy.deepcopy(generic_payload)
+            omit_only_payload["id"] = "generic_omit_only"
+            omit_only_payload["copy_format"] = {
+                "format": "text-v1",
+                "lines": [
+                    {"text": "Procedure", "omitIfAllBlank": ["basic.status"]}
+                ],
+            }
+            omit_only_response = client.post("/api/templates", json=omit_only_payload, headers=LOCAL_HEADERS)
+            assert_status(omit_only_response, 201, "POST /api/templates generic-v1 omit-only warning", failures)
+            assert_json_contains(
+                omit_only_response,
+                lambda item: any(warning["fieldRef"] == "basic.status" for warning in item.get("warnings", []))
+                and any(warning["fieldRef"] == "basic.procedure" for warning in item.get("warnings", [])),
+                "POST /api/templates generic-v1 treats omitIfAllBlank as control ref",
+                failures,
+            )
+
+            no_copy_format_payload = copy.deepcopy(generic_payload)
+            no_copy_format_payload["id"] = "generic_no_copy"
+            no_copy_format_payload["copy_format"] = None
+            no_copy_response = client.post("/api/templates", json=no_copy_format_payload, headers=LOCAL_HEADERS)
+            assert_status(no_copy_response, 201, "POST /api/templates generic-v1 no copy_format", failures)
+            assert_json_contains(
+                no_copy_response,
+                lambda item: not item.get("warnings"),
+                "POST /api/templates generic-v1 copy_format null has no warnings",
                 failures,
             )
 
@@ -769,6 +834,36 @@ def run_write_tests(failures):
             )
             generic_v2_admin_detail = client.get("/api/admin/templates/generic_v2_test")
             assert_status(generic_v2_admin_detail, 200, "GET /api/admin/templates/generic_v2_test", failures)
+            assert_json_contains(
+                generic_v2_admin_detail,
+                lambda item: item["warnings"] == [],
+                "GET /api/admin/templates/generic_v2_test has no unreferenced warnings",
+                failures,
+            )
+            generic_v2_unreferenced_payload = copy.deepcopy(generic_v2_payload)
+            generic_v2_unreferenced_payload["id"] = "generic_v2_unref"
+            generic_v2_unreferenced_payload["copy_format"] = {"format": "text-v1", "lines": ["Oxygen: {{vitals.oxygen_use}}"]}
+            generic_v2_unreferenced_response = client.post(
+                "/api/templates",
+                json=generic_v2_unreferenced_payload,
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(
+                generic_v2_unreferenced_response,
+                201,
+                "POST /api/templates generic-v2 unreferenced warning",
+                failures,
+            )
+            assert_json_contains(
+                generic_v2_unreferenced_response,
+                lambda item: any(
+                    warning["fieldRef"] == "vitals.oxygen_flow"
+                    and "条件付き表示" in warning["message"]
+                    for warning in item.get("warnings", [])
+                ),
+                "POST /api/templates generic-v2 marks conditional unreferenced field",
+                failures,
+            )
             generic_v2_base_version_id = (generic_v2_admin_detail.get_json() or {}).get("current_version_id")
             risky_schema = copy.deepcopy(GENERIC_V2_SCHEMA)
             risky_schema["sections"][0]["fields"] = [risky_schema["sections"][0]["fields"][0]]

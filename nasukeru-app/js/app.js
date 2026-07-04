@@ -325,6 +325,11 @@ function applyGenericInputMeta(input, section, field) {
   input.dataset.fieldType = field.type;
   input.dataset.requiredWarning = field.requiredWarning ? "true" : "false";
   input.dataset.blankPolicy = field.blankPolicy || "";
+  if (field.type === "number") {
+    if (typeof field.min === "number") input.dataset.min = String(field.min);
+    if (typeof field.max === "number") input.dataset.max = String(field.max);
+    if (typeof field.step === "number") input.dataset.step = String(field.step);
+  }
   input.genericOptionLabels = optionLabelMap(field.options);
   input.genericRequiredIf = field.requiredIf || null;
   input.genericHardRange = field.hardRange || null;
@@ -387,12 +392,17 @@ function makeGenericField(section, field) {
     return row;
   } else {
     input = document.createElement("input");
-    input.type = field.type === "number" ? "number" : "text";
+    input.type = "text";
     input.className = "nval generic-input";
     if (field.type === "number") {
-      if (typeof field.min === "number") input.min = String(field.min);
-      if (typeof field.max === "number") input.max = String(field.max);
-      if (typeof field.step === "number") input.step = String(field.step);
+      input.inputMode = "decimal";
+      input.addEventListener("compositionend", function() {
+        NasukeruGenericValues.normalizeNumberField(input);
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      input.addEventListener("blur", function() {
+        NasukeruGenericValues.normalizeNumberField(input);
+      });
     }
   }
   input.value = "";

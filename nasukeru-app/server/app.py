@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -9,6 +10,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from template_schema import (
     SchemaValidationError,
+    collect_unreferenced_fields,
     detect_high_risk_changes,
     normalize_copy_format,
     normalize_schema,
@@ -22,6 +24,7 @@ APP_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB_PATH = Path(__file__).with_name("nasukeru.db")
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024
 
 
 class DatabaseNotReady(RuntimeError):
@@ -119,8 +122,10 @@ def version_from_row(row, include_schema=False):
     if include_schema:
         schema = parse_json_value(row["schema_json"])
         schema = normalize_db_template_schema(schema)
+        copy_format = parse_json_value(row["copy_format_json"])
         version["schema"] = schema
-        version["copy_format"] = parse_json_value(row["copy_format_json"])
+        version["copy_format"] = copy_format
+        version["warnings"] = collect_template_warnings(schema, copy_format)
     return version
 
 
@@ -309,14 +314,20 @@ def validate_version_definition(row):
     return schema, copy_format
 
 
+def collect_template_warnings(schema, copy_format):
+    return collect_unreferenced_fields(schema, copy_format)
+
+
 def admin_template_detail_from_row(row):
     schema = parse_json_value(row["current_schema_json"])
     schema = normalize_db_template_schema(schema)
+    copy_format = parse_json_value(row["current_copy_format_json"])
     return {
         **template_summary_from_row(row),
         "schema": schema,
-        "copy_format": parse_json_value(row["current_copy_format_json"]),
+        "copy_format": copy_format,
         "schema_format": get_schema_format(schema),
+        "warnings": collect_template_warnings(schema, copy_format),
     }
 
 
@@ -348,12 +359,19 @@ def count_rows(conn, table):
 
 @app.errorhandler(DatabaseNotReady)
 def handle_database_not_ready(error):
-    return jsonify({"ok": False, "error": "database not ready", "detail": str(error)}), 503
+    app.logger.warning("database not ready: %s", error)
+    return jsonify({"ok": False, "error": "database not ready"}), 503
 
 
 @app.errorhandler(sqlite3.Error)
 def handle_database_error(error):
-    return jsonify({"ok": False, "error": "database error", "detail": str(error)}), 500
+    app.logger.exception("database error")
+    return jsonify({"ok": False, "error": "database error"}), 500
+
+
+@app.errorhandler(413)
+def handle_payload_too_large(error):
+    return jsonify({"ok": False, "error": "payload too large"}), 413
 
 
 @app.errorhandler(TemplateSchemaError)
@@ -484,6 +502,7 @@ def create_template():
     timestamp = now_iso()
     schema_json = json_dumps(validated["schema"])
     copy_format_json = json_dumps(validated["copy_format"]) if validated["copy_format"] is not None else None
+    warnings = collect_template_warnings(validated["schema"], validated["copy_format"])
     change_summary = validated["change_summary"] or "Create template"
     conn = connect()
     try:
@@ -557,7 +576,10 @@ def create_template():
         raise
     finally:
         conn.close()
-    return jsonify({"ok": True, "template": summary}), 201
+    response = {"ok": True, "template": summary}
+    if warnings:
+        response["warnings"] = warnings
+    return jsonify(response), 201
 
 
 @app.post("/api/templates/<template_id>/versions")
@@ -576,6 +598,7 @@ def create_template_version(template_id):
     timestamp = now_iso()
     schema_json = json_dumps(validated["schema"])
     copy_format_json = json_dumps(validated["copy_format"]) if validated["copy_format"] is not None else None
+    warnings = collect_template_warnings(validated["schema"], validated["copy_format"])
     high_risk_changes = []
     conn = connect()
     try:
@@ -653,6 +676,7 @@ def create_template_version(template_id):
             "version_number": version_number,
             "status": "draft",
             "high_risk_changes": high_risk_changes,
+            "warnings": warnings,
         }
     ), 201
 
@@ -1190,9 +1214,11 @@ def health():
                 "search_keywords": count_rows(conn, "search_keywords"),
             }
     except DatabaseNotReady as error:
-        return jsonify({"ok": False, "database": "missing", "detail": str(error)}), 503
+        app.logger.warning("database not ready: %s", error)
+        return jsonify({"ok": False, "database": "missing"}), 503
     except sqlite3.Error as error:
-        return jsonify({"ok": False, "database": "error", "detail": str(error)}), 500
+        app.logger.exception("database health check failed")
+        return jsonify({"ok": False, "database": "error"}), 500
     return jsonify({"ok": True, "database": "connected", "db_path": str(get_db_path()), "counts": counts})
 
 
@@ -1205,4 +1231,10 @@ if __name__ == "__main__":
         raise SystemExit("DB not found. Run: py -3.10 server/init_db.py")
     host = os.environ.get("NASUKERU_HOST", "127.0.0.1")
     port = int(os.environ.get("NASUKERU_PORT", "8000"))
+    local_hosts = {"127.0.0.1", "localhost", "::1"}
+    if host not in local_hosts and not env_flag("NASUKERU_ALLOW_EXTERNAL"):
+        logging.warning("Refusing non-local bind host %s without NASUKERU_ALLOW_EXTERNAL=1", host)
+        raise SystemExit("External bind is disabled. Set NASUKERU_ALLOW_EXTERNAL=1 to allow it.")
+    if host not in local_hosts:
+        logging.warning("Nasukeru is binding to non-local host %s. Do not expose without proper network controls.", host)
     app.run(host=host, port=port, debug=env_flag("NASUKERU_DEBUG"))

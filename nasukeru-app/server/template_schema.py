@@ -557,6 +557,11 @@ def collect_generic_field_refs(schema):
 
 
 def iter_copy_line_refs(line):
+    yield from iter_copy_line_output_refs(line)
+    yield from iter_copy_line_control_refs(line)
+
+
+def iter_copy_line_output_refs(line):
     text = line if isinstance(line, str) else line.get("text", "")
     for match in COPY_PLACEHOLDER_PATTERN.finditer(text):
         yield f"{match.group(1)}.{match.group(2)}"
@@ -564,8 +569,56 @@ def iter_copy_line_refs(line):
         split_ref = line.get("splitLinesFrom")
         if split_ref:
             yield split_ref
+
+
+def iter_condition_field_refs(condition):
+    if not isinstance(condition, dict):
+        return
+    op = condition.get("op")
+    if op in ("and", "or"):
+        for child in condition.get("conditions", []):
+            yield from iter_condition_field_refs(child)
+        return
+    if op == "not":
+        yield from iter_condition_field_refs(condition.get("condition"))
+        return
+    ref = condition.get("field")
+    if isinstance(ref, str):
+        yield ref
+
+
+def iter_copy_line_control_refs(line):
+    if isinstance(line, dict):
         for ref in line.get("omitIfAllBlank", []):
             yield ref
+        yield from iter_condition_field_refs(line.get("showIf"))
+
+
+def collect_unreferenced_fields(schema, copy_format):
+    if copy_format is None or schema_format(schema) not in (SCHEMA_FORMAT_GENERIC_V1, SCHEMA_FORMAT_GENERIC_V2):
+        return []
+    output_refs = set()
+    for line in copy_format.get("lines", []):
+        output_refs.update(iter_copy_line_output_refs(line))
+    warnings = []
+    for section in schema["sections"]:
+        section_label = section.get("label") or section.get("id")
+        for field in section["fields"]:
+            ref = f"{section['id']}.{field['id']}"
+            if ref in output_refs:
+                continue
+            field_label = field.get("label") or field.get("id")
+            suffix = "（条件付き表示）" if field.get("visibleIf") else ""
+            label = f"{section_label} > {field_label}{suffix}"
+            warnings.append(
+                {
+                    "code": "unreferenced_field",
+                    "fieldRef": ref,
+                    "label": label,
+                    "message": f"入力項目『{label}』はコピー出力に含まれていません",
+                }
+            )
+    return warnings
 
 
 def validate_copy_format_references(schema, copy_format):

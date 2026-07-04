@@ -619,6 +619,7 @@ current_version_id: v1 stroke-v1
 - 通常画面の主経路は `generic-v1` とし、`stroke-v1` 専用描画は互換用として段階的に縮小する
 - `field-meta.js` の固定ラベルは `generic-v1` ではschema側ラベルを優先し、旧 `stroke-v1` 互換処理に限定して使う
 - `copy_format_json` は文字列行を維持しつつ、行オブジェクトで空欄時の行省略を扱う
+- 既存stroke項目だけを入力した場合は、移行前の `stroke-v1` コピー出力と文字列一致させる
 
 `text-v1` の行オブジェクト:
 
@@ -630,6 +631,18 @@ current_version_id: v1 stroke-v1
 ```
 
 `omitIfAllBlank` に指定した `section.field` がすべて空欄の場合、その行はコピー出力から省略する。既存の文字列行は従来どおり必ず出力する。
+
+改行分割が必要な行は `splitLinesFrom` を指定する。
+
+```json
+{
+  "text": "{{neuro.other}}",
+  "splitLinesFrom": "neuro.other",
+  "omitIfAllBlank": ["neuro.other"]
+}
+```
+
+`splitLinesFrom` は指定した値を改行で分割し、空行を除いた各行を出力する。これは旧 `stroke-v1` の「その他神経症状」出力互換に使う。
 
 ## 13. テスト方針
 
@@ -657,6 +670,7 @@ current_version_id: v1 stroke-v1
 - `copy_format_json` から出力できる
 - 未入力値が定義どおり出力される
 - 既存strokeテンプレートの出力文が移行前後で一致する
+- `stroke_findings` は空欄時に出力されず、既存stroke項目だけの入力では旧出力と一致する
 
 ### 13.4 Phase 4
 

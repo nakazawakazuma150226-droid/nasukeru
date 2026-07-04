@@ -216,6 +216,7 @@ def build_generic_stroke_schema(template):
                 generic_field("barre", "バレー徴候"),
                 generic_field("mingazzini", "ミンガッチー徴候"),
                 generic_field("nihss", "NIHSS（別紙記録参照）", requiredWarning=True),
+                generic_field("other", "その他神経症状", "textarea"),
             ],
         },
         {
@@ -249,7 +250,10 @@ def build_generic_stroke_schema(template):
 
 def build_generic_stroke_copy_format(template):
     extra_lines = [
-        f"{field['label']}：{{{{stroke_findings.{field['id']}}}}}"
+        {
+            "text": f"{field['label']}：{{{{stroke_findings.{field['id']}}}}}",
+            "omitIfAllBlank": [f"stroke_findings.{field['id']}"],
+        }
         for field in STROKE_EXTRA_FIELDS[template["id"]]
     ]
     return normalize_copy_format(
@@ -258,21 +262,25 @@ def build_generic_stroke_copy_format(template):
             "lines": [
                 template["full"],
                 "",
-                "JCS {{vitals.jcs}}",
-                "T：{{vitals.t}}℃、BP：{{vitals.bp}}mmHg、HR：{{vitals.hr}}、SpO₂：{{vitals.spo2}}％。",
+                "JCS{{vitals.jcs}}　T{{vitals.t}}℃　BP{{vitals.bp}}mmHg　HR{{vitals.hr}}　SpO₂{{vitals.spo2}}%",
                 "",
                 "頭痛：{{symptoms.headache}}",
                 "めまい：{{symptoms.dizzy}}",
                 "嘔気：{{symptoms.nausea}}",
                 "",
-                "瞳孔{{neuro.pupil}}、対光反射{{neuro.light}}、{{neuro.eye}}。",
-                "バレー徴候：{{neuro.barre}}",
-                "ミンガッチー徴候：{{neuro.mingazzini}}",
+                "神経所見",
+                "瞳孔：{{neuro.pupil}}",
+                "対光反射：{{neuro.light}}",
+                "眼球位置：{{neuro.eye}}",
+                {"text": "バレー徴候：{{neuro.barre}}", "omitIfAllBlank": ["neuro.barre"]},
+                {"text": "ミンガッチー徴候：{{neuro.mingazzini}}", "omitIfAllBlank": ["neuro.mingazzini"]},
                 "MMT：右上肢{{mmt.ru}}、右下肢{{mmt.rl}}、左上肢{{mmt.lu}}、左下肢{{mmt.ll}}",
-                "NIHSS：{{neuro.nihss}}（別紙記録参照）",
+                "NIHSS：{{neuro.nihss}}",
+                {"text": "{{neuro.other}}", "splitLinesFrom": "neuro.other", "omitIfAllBlank": ["neuro.other"]},
                 *extra_lines,
                 "",
-                "安静度：{{rest.level}}",
+                "安静度",
+                "{{rest.level}}",
             ],
         }
     )
@@ -606,6 +614,97 @@ def migrate_stroke_templates_to_generic(conn, now):
     record_migration(conn, "004", "convert stroke templates to generic v1", now)
 
 
+def migrate_stroke_copy_format_to_compat(conn, now):
+    if migration_applied(conn, "005"):
+        return
+
+    for template in STROKE_TYPES:
+        row = conn.execute(
+            """
+            SELECT
+              t.id,
+              t.current_version_id,
+              COALESCE(v.schema_json, t.schema_json) AS current_schema_json,
+              v.copy_format_json AS current_copy_format_json
+            FROM templates t
+            LEFT JOIN template_versions v ON v.id = t.current_version_id
+            WHERE t.id = ?
+            """,
+            (template["id"],),
+        ).fetchone()
+        if row is None:
+            continue
+
+        schema = build_generic_stroke_schema(template)
+        copy_format = build_generic_stroke_copy_format(template)
+        schema_json = json.dumps(schema, ensure_ascii=False)
+        copy_format_json = json.dumps(copy_format, ensure_ascii=False)
+        version_number = conn.execute(
+            """
+            SELECT COALESCE(MAX(version_number), 0) + 1
+            FROM template_versions
+            WHERE template_id = ?
+            """,
+            (template["id"],),
+        ).fetchone()[0]
+        cursor = conn.execute(
+            """
+            INSERT INTO template_versions
+              (template_id, version_number, schema_json, copy_format_json,
+               change_summary, change_reason, created_by, created_at, approved_by, approved_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'system', ?, 'system', ?)
+            """,
+            (
+                template["id"],
+                version_number,
+                schema_json,
+                copy_format_json,
+                "Align generic copy output with stroke-v1",
+                "Preserve existing nursing note text while keeping generic-v1 fields",
+                now,
+                now,
+            ),
+        )
+        version_id = cursor.lastrowid
+        conn.execute(
+            """
+            UPDATE templates
+            SET schema_json = ?, current_version_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (schema_json, version_id, now, template["id"]),
+        )
+        conn.execute(
+            """
+            INSERT INTO template_audit_logs
+              (template_id, version_id, action, actor_name, acted_at, before_json, after_json, reason)
+            VALUES (?, ?, 'migrate', 'system', ?, ?, ?, ?)
+            """,
+            (
+                template["id"],
+                version_id,
+                now,
+                json.dumps(
+                    {
+                        "schema": json.loads(row[2]),
+                        "copy_format": json.loads(row[3]) if row[3] else None,
+                    },
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {
+                        "schema": schema,
+                        "copy_format": copy_format,
+                    },
+                    ensure_ascii=False,
+                ),
+                "Align generic-v1 stroke copy output with stroke-v1 output",
+            ),
+        )
+
+    record_migration(conn, "005", "align stroke generic copy output with stroke v1", now)
+
+
 def seed_rest_options(conn):
     for order, label in enumerate(REST_OPTIONS, start=1):
         if exists(conn, "SELECT 1 FROM rest_options WHERE label = ?", (label,)):
@@ -654,6 +753,7 @@ def main():
         seed_templates(conn, now)
         migrate_template_versions(conn, now)
         migrate_stroke_templates_to_generic(conn, now)
+        migrate_stroke_copy_format_to_compat(conn, now)
         seed_rest_options(conn)
         seed_quick_templates(conn)
         seed_search_keywords(conn)

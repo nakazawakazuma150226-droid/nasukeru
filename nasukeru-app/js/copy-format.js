@@ -129,11 +129,29 @@ function renderCopyLine(line, values) {
   });
 }
 
+function renderCopyLineWithValue(line, values, ref, value) {
+  return line.replace(/\{\{\s*([a-z0-9_-]+)\.([a-z0-9_-]+)\s*\}\}/g, function(match, sectionId, fieldId) {
+    var key = sectionId + "." + fieldId;
+    if (key === ref) return value || "__";
+    return values[key] || "__";
+  });
+}
+
 function shouldOmitCopyLine(line, values) {
   if (!line || !Array.isArray(line.omitIfAllBlank)) return false;
   return line.omitIfAllBlank.every(function(ref) {
     return !String(values[ref] || "").trim();
   });
+}
+
+function appendSplitCopyLines(lines, line, values) {
+  var ref = line.splitLinesFrom;
+  if (!ref) return false;
+  String(values[ref] || "").split(/\r?\n/).forEach(function(part) {
+    var text = part.trim();
+    if (text) lines.push(renderCopyLineWithValue(line.text || "{{" + ref + "}}", values, ref, text));
+  });
+  return true;
 }
 
 function buildGenericTemplateCopyText(copyFormat) {
@@ -145,6 +163,7 @@ function buildGenericTemplateCopyText(copyFormat) {
       return;
     }
     if (shouldOmitCopyLine(line, values)) return;
+    if (appendSplitCopyLines(lines, line, values)) return;
     lines.push(renderCopyLine(line.text || "", values));
   });
   document.getElementById("prev").textContent = lines.join("\n");

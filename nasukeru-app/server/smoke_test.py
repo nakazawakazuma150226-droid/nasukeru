@@ -84,6 +84,7 @@ GENERIC_COPY_FORMAT = {
         "Procedure: {{basic.procedure}}",
         "Status: {{basic.status}}",
         {"text": "Status note: {{basic.status}}", "omitIfAllBlank": ["basic.status"]},
+        {"text": "{{basic.status}}", "splitLinesFrom": "basic.status", "omitIfAllBlank": ["basic.status"]},
     ],
 }
 
@@ -101,6 +102,166 @@ def assert_json_contains(response, predicate, label, failures):
     print((" OK " if matched else "FAIL") + " " + label)
     if not matched:
         failures.append((label, "matching JSON", data))
+
+
+def render_template_line(text, values, override_ref=None, override_value=None):
+    import re
+
+    def replace(match):
+        ref = f"{match.group(1)}.{match.group(2)}"
+        if ref == override_ref:
+            return override_value or "__"
+        return values.get(ref) or "__"
+
+    return re.sub(r"\{\{\s*([a-z0-9_-]+)\.([a-z0-9_-]+)\s*\}\}", replace, text)
+
+
+def should_omit_line(line, values):
+    refs = line.get("omitIfAllBlank")
+    return isinstance(refs, list) and all(not str(values.get(ref, "")).strip() for ref in refs)
+
+
+def render_generic_copy(copy_format, values):
+    lines = []
+    for line in copy_format["lines"]:
+        if isinstance(line, str):
+            lines.append(render_template_line(line, values))
+            continue
+        if should_omit_line(line, values):
+            continue
+        split_ref = line.get("splitLinesFrom")
+        if split_ref:
+            for part in str(values.get(split_ref, "")).splitlines():
+                text = part.strip()
+                if text:
+                    lines.append(render_template_line(line.get("text", f"{{{{{split_ref}}}}}"), values, split_ref, text))
+            continue
+        lines.append(render_template_line(line.get("text", ""), values))
+    return "\n".join(lines)
+
+
+def value_or_blank(values, ref):
+    return values.get(ref) or "__"
+
+
+def render_legacy_stroke_copy(full, values):
+    # Mirrors the old stroke-v1 branch in js/copy-format.js:
+    # title, vitals as one full-width-space separated line, symptoms, neuro rows,
+    # optional Barre/Mingazzini rows, newline-split "other", then rest.
+    lines = [
+        full,
+        "",
+        "JCS{jcs}　T{t}℃　BP{bp}mmHg　HR{hr}　SpO₂{spo2}%".format(
+            jcs=value_or_blank(values, "vitals.jcs"),
+            t=value_or_blank(values, "vitals.t"),
+            bp=value_or_blank(values, "vitals.bp"),
+            hr=value_or_blank(values, "vitals.hr"),
+            spo2=value_or_blank(values, "vitals.spo2"),
+        ),
+        "",
+        f"頭痛：{value_or_blank(values, 'symptoms.headache')}",
+        f"めまい：{value_or_blank(values, 'symptoms.dizzy')}",
+        f"嘔気：{value_or_blank(values, 'symptoms.nausea')}",
+        "",
+        "神経所見",
+        f"瞳孔：{value_or_blank(values, 'neuro.pupil')}",
+        f"対光反射：{value_or_blank(values, 'neuro.light')}",
+        f"眼球位置：{value_or_blank(values, 'neuro.eye')}",
+    ]
+    if values.get("neuro.barre", "").strip():
+        lines.append(f"バレー徴候：{values['neuro.barre']}")
+    if values.get("neuro.mingazzini", "").strip():
+        lines.append(f"ミンガッチー徴候：{values['neuro.mingazzini']}")
+    lines.extend(
+        [
+            "MMT：右上肢{ru}、右下肢{rl}、左上肢{lu}、左下肢{ll}".format(
+                ru=value_or_blank(values, "mmt.ru"),
+                rl=value_or_blank(values, "mmt.rl"),
+                lu=value_or_blank(values, "mmt.lu"),
+                ll=value_or_blank(values, "mmt.ll"),
+            ),
+            f"NIHSS：{value_or_blank(values, 'neuro.nihss')}",
+        ]
+    )
+    for line in str(values.get("neuro.other", "")).splitlines():
+        if line.strip():
+            lines.append(line.strip())
+    lines.extend(["", "安静度", value_or_blank(values, "rest.level")])
+    return "\n".join(lines)
+
+
+def assert_stroke_copy_compat(client, failures):
+    response = client.get("/api/templates/mca")
+    data = response.get_json()
+    copy_format = data["copy_format"]
+    full = data["full"]
+    cases = [
+        ("empty", {}),
+        (
+            "representative",
+            {
+                "vitals.jcs": "0",
+                "vitals.t": "36.5",
+                "vitals.bp": "120/70",
+                "vitals.hr": "72",
+                "vitals.spo2": "98",
+                "symptoms.headache": "なし",
+                "symptoms.dizzy": "なし",
+                "symptoms.nausea": "なし",
+                "neuro.pupil": "2.5/2.5mm",
+                "neuro.light": "あり",
+                "neuro.eye": "正中位",
+                "neuro.barre": "陰性",
+                "neuro.mingazzini": "左軽度下垂",
+                "mmt.ru": "5/5",
+                "mmt.rl": "5/5",
+                "mmt.lu": "4/5",
+                "mmt.ll": "4/5",
+                "neuro.nihss": "2",
+                "neuro.other": "構音障害あり",
+                "rest.level": "ベッド上安静",
+            },
+        ),
+        (
+            "branching",
+            {
+                "vitals.jcs": "I-1",
+                "vitals.t": "36.4",
+                "vitals.bp": "130/80",
+                "vitals.hr": "80台",
+                "vitals.spo2": "96",
+                "symptoms.headache": "",
+                "symptoms.dizzy": "あり",
+                "symptoms.nausea": "",
+                "neuro.pupil": "3.0/3.0mm",
+                "neuro.light": "あり",
+                "neuro.eye": "正中位",
+                "neuro.barre": "",
+                "neuro.mingazzini": "",
+                "mmt.ru": "5/5",
+                "mmt.rl": "5/5",
+                "mmt.lu": "4/5",
+                "mmt.ll": "4/5",
+                "neuro.nihss": "4",
+                "neuro.other": "左口角下垂あり\n構音障害あり\n\n左半身感覚鈍麻あり",
+                "rest.level": "ベッド上安静",
+            },
+        ),
+    ]
+    for name, values in cases:
+        expected = render_legacy_stroke_copy(full, values)
+        actual = render_generic_copy(copy_format, values)
+        matched = expected == actual
+        print((" OK " if matched else "FAIL") + f" stroke copy compat {name}")
+        if not matched:
+            failures.append((f"stroke copy compat {name}", expected, actual))
+
+    extra_values = {**cases[1][1], "stroke_findings.left_mouth_droop": "あり"}
+    extra_output = render_generic_copy(copy_format, extra_values)
+    matched = "左口角下垂：あり" in extra_output and "左口角下垂：__" not in render_generic_copy(copy_format, cases[1][1])
+    print((" OK " if matched else "FAIL") + " stroke copy extra fields are optional")
+    if not matched:
+        failures.append(("stroke copy extra fields are optional", "optional extra output", extra_output))
 
 
 def run_get_tests(client, failures):
@@ -126,8 +287,21 @@ def run_write_tests(failures):
                     section["id"] == "stroke_findings"
                     and any(field["id"] == "left_mouth_droop" for field in section["fields"])
                     for section in item["schema"]["sections"]
+                )
+                and any(
+                    section["id"] == "neuro"
+                    and any(field["id"] == "other" for field in section["fields"])
+                    for section in item["schema"]["sections"]
                 ),
                 "GET /api/templates/mca includes MCA-specific generic fields",
+                failures,
+            )
+            mca_admin_response = client.get("/api/admin/templates/mca")
+            assert_status(mca_admin_response, 200, "GET /api/admin/templates/mca after migration", failures)
+            assert_json_contains(
+                mca_admin_response,
+                lambda item: item["current_version_number"] >= 3,
+                "GET /api/admin/templates/mca includes current version number",
                 failures,
             )
 
@@ -230,7 +404,8 @@ def run_write_tests(failures):
                 lambda item: item["schema_format"] == "generic-v1"
                 and item["schema"]["schemaFormat"] == "generic-v1"
                 and item["copy_format"]["format"] == "text-v1"
-                and item["copy_format"]["lines"][2]["omitIfAllBlank"] == ["basic.status"],
+                and item["copy_format"]["lines"][2]["omitIfAllBlank"] == ["basic.status"]
+                and item["copy_format"]["lines"][3]["splitLinesFrom"] == "basic.status",
                 "GET /api/admin/templates/generic_test returns generic schema",
                 failures,
             )
@@ -304,6 +479,24 @@ def run_write_tests(failures):
                 "POST /api/templates generic-v1 invalid copy_format ref",
                 failures,
             )
+
+            invalid_copy_split_payload = {
+                **generic_payload,
+                "id": "bad_copy_split",
+                "copy_format": {
+                    "format": "text-v1",
+                    "lines": [
+                        {"text": "{{basic.status}}", "splitLinesFrom": "bad ref"}
+                    ],
+                },
+            }
+            assert_status(
+                client.post("/api/templates", json=invalid_copy_split_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v1 invalid copy_format split ref",
+                failures,
+            )
+            assert_stroke_copy_compat(client, failures)
     finally:
         if original_db_path is None:
             os.environ.pop("NASUKERU_DB_PATH", None)

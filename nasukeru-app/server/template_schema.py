@@ -291,6 +291,10 @@ def validate_copy_line(line, field):
     require_object(line, field)
     require_keys(line, ("text",), field)
     require_string(line["text"], f"{field}.text")
+    if "splitLinesFrom" in line:
+        ref = line["splitLinesFrom"]
+        if not isinstance(ref, str) or not COPY_REF_PATTERN.fullmatch(ref):
+            raise SchemaValidationError(f"{field}.splitLinesFrom must match section.field")
     if "omitIfAllBlank" in line:
         refs = line["omitIfAllBlank"]
         if not isinstance(refs, list) or not refs:
@@ -311,7 +315,7 @@ def normalize_copy_format(copy_format):
         if isinstance(line, str):
             normalized_lines.append(line)
         else:
-            normalized_lines.append(ordered_with_known_keys(line, ("text", "omitIfAllBlank")))
+            normalized_lines.append(ordered_with_known_keys(line, ("text", "splitLinesFrom", "omitIfAllBlank")))
     return ordered_with_known_keys({**copy_format, "lines": normalized_lines}, ("format", "lines"))
 
 

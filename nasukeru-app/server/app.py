@@ -199,6 +199,8 @@ def template_summary_from_row(row):
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
+    if "current_version_number" in row.keys():
+        summary["current_version_number"] = row["current_version_number"]
     if "schema_json" in row.keys():
         schema = parse_json_value(row["schema_json"])
         validate_db_template_schema(schema)
@@ -217,6 +219,7 @@ def fetch_template_summary(conn, template_id):
           t.is_active,
           t.status,
           t.current_version_id,
+          v.version_number AS current_version_number,
           t.created_at,
           t.updated_at,
           COALESCE(v.schema_json, t.schema_json) AS schema_json
@@ -241,6 +244,7 @@ def fetch_template_state(conn, template_id):
           t.is_active,
           t.status,
           t.current_version_id,
+          v.version_number AS current_version_number,
           t.created_at,
           t.updated_at,
           COALESCE(v.schema_json, t.schema_json) AS current_schema_json,

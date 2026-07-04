@@ -139,7 +139,8 @@ SQLite DB
   - `server/` や `.gitignore` が公開されていないことも確認する
 
 - `docs/handoff.md`
-  - 現状仕様、将来DB設計、監査ログ設計、実装フェーズの引継ぎメモ
+  - 後日作業再開時に最初に読む現状引継ぎメモ
+  - 現在の到達点、主要ファイル、マイグレーション、次の作業順序を集約する
 
 - `docs/variable-template-migration-design.md`
   - DSAなど新規項目を持つテンプレートに備えた可変schema設計
@@ -156,12 +157,13 @@ SQLite DB
 - `generic-v1` のコピー出力は `copy_format_json` の `text-v1` 形式を優先する
 - `copy_format_json` が無い場合は暫定の汎用形式で出力する
 - `text-v1` は `lines` 配列と `{{section.field}}` 参照をサポートする
-- `text-v1` の各行は文字列、または `{ "text": "...", "omitIfAllBlank": ["section.field"] }` の行オブジェクトで定義できる
+- `text-v1` の各行は文字列、または `{ "text": "...", "omitIfAllBlank": ["section.field"], "splitLinesFrom": "section.field" }` の行オブジェクトで定義できる
 - `omitIfAllBlank` は指定した入力がすべて空欄のとき、その行をコピー出力から省略する
+- `splitLinesFrom` は指定した入力を改行で分割し、空行を除いて複数行として出力する
 - 複雑な条件分岐や高度な整形は次フェーズで設計・実装する
 - 管理画面の新規追加は `generic-v1` を初期選択し、必要時のみ `stroke-v1` を選べる
 
-脳梗塞5テンプレートは `generic-v1` へ移行済みです。共通項目に加えて、MCA/ACA/PCA/ラクナ/脳幹ごとの個別観察項目を空欄フィールドとして持ちます。既存の `stroke-v1` 版は履歴に残し、DB初期化時のマイグレーション `004` で新バージョンとして適用します。
+脳梗塞5テンプレートは `generic-v1` へ移行済みです。共通項目に加えて、MCA/ACA/PCA/ラクナ/脳幹ごとの個別観察項目を空欄フィールドとして持ちます。既存の `stroke-v1` 版は履歴に残し、DB初期化時のマイグレーション `004` で新バージョンとして適用します。マイグレーション `005` では、既存stroke項目だけを入力した場合に旧 `stroke-v1` のコピー出力と一致する `copy_format_json` へ更新します。
 
 ## 現在のデータフロー
 
@@ -357,6 +359,8 @@ APIの返却形は既存画面に合わせて維持しています。
 - `GET /api/admin/templates`
   - 管理画面の一覧用に、削除済みを含む全テンプレートのメタ情報を返す
   - `is_active`, `status`, `current_version_id`, `current_version_number`, `created_at`, `updated_at` を含む
+- `GET /api/admin/templates/<id>`
+  - 管理画面の編集用に、単体テンプレートのschema、copy_format、現在版番号を返す
 - `POST /api/templates`
   - テンプレートを追加し、`template_versions` に version 1 を作成する
   - 必須: `id`, `label`, `full`, `category`, `schema`, `change_reason`

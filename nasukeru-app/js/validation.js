@@ -1,5 +1,5 @@
 function getMissingRequiredItems(card) {
-  if (card.dataset.schemaFormat === "generic-v1") {
+  if (card.dataset.schemaFormat === "generic-v1" || card.dataset.schemaFormat === "generic-v2") {
     return getMissingGenericRequiredItems(card);
   }
   var missing = [];
@@ -33,9 +33,14 @@ function getMissingRequiredItems(card) {
 
 function getMissingGenericRequiredItems(card) {
   var missing = [];
+  var values = NasukeruGenericValues.collectTypedValues(card);
   card.querySelectorAll(".generic-input").forEach(function(input) {
+    var row = input.closest(".nrow");
+    if (row && row.hidden) return;
     var value = NasukeruGenericValues.parseInputValue(input);
-    if (input.dataset.requiredWarning === "true" && NasukeruGenericValues.isBlankValue(value)) {
+    var required = input.dataset.requiredWarning === "true"
+      || (input.genericRequiredIf && NasukeruConditionEngine.evaluateCondition(input.genericRequiredIf, values));
+    if (required && NasukeruGenericValues.isBlankValue(value)) {
       missing.push(input.dataset.fieldLabel || "入力項目");
     }
   });

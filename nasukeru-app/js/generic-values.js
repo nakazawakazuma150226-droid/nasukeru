@@ -74,8 +74,23 @@
     input.value = value === null || value === undefined ? "" : String(value);
   }
 
+  function fieldRef(input) {
+    return input.dataset.sectionId + "." + input.dataset.fieldId;
+  }
+
+  function collectTypedValues(container) {
+    var values = {};
+    if (!container) return values;
+    container.querySelectorAll(".generic-input").forEach(function(input) {
+      values[fieldRef(input)] = parseInputValue(input);
+    });
+    return values;
+  }
+
   return {
     applyInputValue: applyInputValue,
+    collectTypedValues: collectTypedValues,
+    fieldRef: fieldRef,
     formatInputValueForCopy: formatInputValueForCopy,
     isBlankValue: isBlankValue,
     parseInputValue: parseInputValue,

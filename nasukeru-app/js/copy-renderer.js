@@ -1,10 +1,10 @@
 (function(root, factory) {
-  var renderer = factory();
+  var renderer = factory(root.NasukeruConditionEngine);
   if (typeof module === "object" && module.exports) {
-    module.exports = renderer;
+    module.exports = factory(require("./condition-engine.js"));
   }
   root.NasukeruCopyRenderer = renderer;
-})(typeof globalThis !== "undefined" ? globalThis : this, function() {
+})(typeof globalThis !== "undefined" ? globalThis : this, function(conditionEngine) {
   var PLACEHOLDER_RE = /\{\{\s*([a-z0-9_-]+)\.([a-z0-9_-]+)\s*\}\}/g;
 
   function valueFor(values, ref) {
@@ -38,13 +38,14 @@
     return true;
   }
 
-  function renderGenericTemplateCopyText(copyFormat, values) {
+  function renderGenericTemplateCopyText(copyFormat, values, conditionValues) {
     var lines = [];
     copyFormat.lines.forEach(function(line) {
       if (typeof line === "string") {
         lines.push(renderCopyLine(line, values));
         return;
       }
+      if (line.showIf && conditionEngine && !conditionEngine.evaluateCondition(line.showIf, conditionValues || values)) return;
       if (shouldOmitCopyLine(line, values)) return;
       if (appendSplitCopyLines(lines, line, values)) return;
       lines.push(renderCopyLine(line.text || "", values));

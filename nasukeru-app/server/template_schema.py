@@ -7,8 +7,11 @@ COPY_REF_PATTERN = re.compile(r"^[a-z0-9_-]{1,32}\.[a-z0-9_-]{1,32}$")
 COPY_PLACEHOLDER_PATTERN = re.compile(r"\{\{\s*([a-z0-9_-]+)\.([a-z0-9_-]+)\s*\}\}")
 SCHEMA_FORMAT_STROKE_V1 = "stroke-v1"
 SCHEMA_FORMAT_GENERIC_V1 = "generic-v1"
-ALLOWED_SCHEMA_FORMATS = (SCHEMA_FORMAT_STROKE_V1, SCHEMA_FORMAT_GENERIC_V1)
+SCHEMA_FORMAT_GENERIC_V2 = "generic-v2"
+ALLOWED_SCHEMA_FORMATS = (SCHEMA_FORMAT_STROKE_V1, SCHEMA_FORMAT_GENERIC_V1, SCHEMA_FORMAT_GENERIC_V2)
 ALLOWED_GENERIC_FIELD_TYPES = ("text", "textarea", "select", "multi_select", "number")
+CONDITION_OPS = ("eq", "neq", "in", "not_in", "contains", "gt", "gte", "lt", "lte", "is_blank", "and", "or", "not")
+CONDITION_MAX_DEPTH = 10
 COPY_FORMAT_TEXT_V1 = "text-v1"
 
 REQUIRED_VITAL_KEYS = ("jcs", "t", "bp", "hr", "spo2")
@@ -131,7 +134,7 @@ def schema_format(schema):
 
 def validate_template_schema(schema):
     fmt = schema_format(schema)
-    if fmt == SCHEMA_FORMAT_GENERIC_V1:
+    if fmt in (SCHEMA_FORMAT_GENERIC_V1, SCHEMA_FORMAT_GENERIC_V2):
         return validate_generic_v1_schema(schema)
     return validate_stroke_v1_schema(schema)
 
@@ -182,6 +185,8 @@ def validate_generic_field(field, section_field, used_ids):
             "min",
             "max",
             "step",
+            "visibleIf",
+            "requiredIf",
         ),
         section_field,
     )
@@ -224,12 +229,77 @@ def validate_generic_field(field, section_field, used_ids):
         validate_options(field["options"], f"{section_field}.options")
 
 
+def generic_field_refs(schema):
+    refs = {}
+    for section in schema["sections"]:
+        section_id = section["id"]
+        for field in section["fields"]:
+            refs[f"{section_id}.{field['id']}"] = field
+    return refs
+
+
+def validate_condition(condition, field_refs, field, depth=0):
+    if depth > CONDITION_MAX_DEPTH:
+        raise SchemaValidationError(f"{field} exceeds maximum nesting depth")
+    require_object(condition, field)
+    op = require_text(condition.get("op"), f"{field}.op")
+    if op not in CONDITION_OPS:
+        raise SchemaValidationError(f"{field}.op must be one of: {', '.join(CONDITION_OPS)}")
+
+    if op in ("and", "or"):
+        reject_unknown_keys(condition, ("op", "conditions"), field)
+        conditions = condition.get("conditions")
+        if not isinstance(conditions, list) or not conditions:
+            raise SchemaValidationError(f"{field}.conditions must be a non-empty array")
+        for index, child in enumerate(conditions):
+            validate_condition(child, field_refs, f"{field}.conditions[{index}]", depth + 1)
+        return
+
+    if op == "not":
+        reject_unknown_keys(condition, ("op", "condition"), field)
+        validate_condition(condition.get("condition"), field_refs, f"{field}.condition", depth + 1)
+        return
+
+    allowed_keys = ("op", "field") if op == "is_blank" else ("op", "field", "value")
+    reject_unknown_keys(condition, allowed_keys, field)
+    ref = require_text(condition.get("field"), f"{field}.field")
+    if not COPY_REF_PATTERN.fullmatch(ref):
+        raise SchemaValidationError(f"{field}.field must match section.field")
+    target = field_refs.get(ref)
+    if target is None:
+        raise SchemaValidationError(f"{field}.field references unknown schema field: {ref}")
+
+    if op == "is_blank":
+        return
+
+    if "value" not in condition:
+        raise SchemaValidationError(f"{field}.value is required")
+    value = condition["value"]
+    target_type = target.get("type")
+    if op in ("gt", "gte", "lt", "lte"):
+        if target_type != "number":
+            raise SchemaValidationError(f"{field}.field must reference a number field for {op}")
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise SchemaValidationError(f"{field}.value must be a number for {op}")
+    elif op in ("in", "not_in"):
+        if not isinstance(value, list) or not value:
+            raise SchemaValidationError(f"{field}.value must be a non-empty array for {op}")
+    elif op == "contains":
+        if target_type != "multi_select":
+            raise SchemaValidationError(f"{field}.field must reference a multi_select field for contains")
+        if isinstance(value, (dict, list)):
+            raise SchemaValidationError(f"{field}.value must be a scalar for contains")
+    elif isinstance(value, (dict, list)):
+        raise SchemaValidationError(f"{field}.value must be a scalar for {op}")
+
+
 def validate_generic_v1_schema(schema):
     require_object(schema, "schema")
     reject_unknown_keys(schema, ("schemaFormat", "sections"), "schema")
     require_keys(schema, ("schemaFormat", "sections"), "schema")
-    if schema["schemaFormat"] != SCHEMA_FORMAT_GENERIC_V1:
-        raise SchemaValidationError("schema.schemaFormat must be generic-v1")
+    fmt = schema["schemaFormat"]
+    if fmt not in (SCHEMA_FORMAT_GENERIC_V1, SCHEMA_FORMAT_GENERIC_V2):
+        raise SchemaValidationError("schema.schemaFormat must be generic-v1 or generic-v2")
 
     sections = schema["sections"]
     if not isinstance(sections, list) or not sections:
@@ -261,6 +331,22 @@ def validate_generic_v1_schema(schema):
         used_field_ids = set()
         for field_index, field in enumerate(fields):
             validate_generic_field(field, f"{section_field}.fields[{field_index}]", used_field_ids)
+    if fmt == SCHEMA_FORMAT_GENERIC_V1:
+        for section_index, section in enumerate(sections):
+            for field_index, field in enumerate(section["fields"]):
+                if "visibleIf" in field or "requiredIf" in field:
+                    raise SchemaValidationError(
+                        f"schema.sections[{section_index}].fields[{field_index}] condition keys require generic-v2"
+                    )
+        return schema
+    refs = generic_field_refs(schema)
+    for section_index, section in enumerate(sections):
+        for field_index, field in enumerate(section["fields"]):
+            field_path = f"schema.sections[{section_index}].fields[{field_index}]"
+            if "visibleIf" in field:
+                validate_condition(field["visibleIf"], refs, f"{field_path}.visibleIf")
+            if "requiredIf" in field:
+                validate_condition(field["requiredIf"], refs, f"{field_path}.requiredIf")
     return schema
 
 
@@ -274,7 +360,7 @@ def ordered_with_known_keys(obj, known_keys):
 
 def normalize_schema(schema):
     validate_template_schema(schema)
-    if schema_format(schema) == SCHEMA_FORMAT_GENERIC_V1:
+    if schema_format(schema) in (SCHEMA_FORMAT_GENERIC_V1, SCHEMA_FORMAT_GENERIC_V2):
         return normalize_generic_v1_schema(schema)
     return normalize_stroke_v1_schema(schema)
 
@@ -326,6 +412,8 @@ def normalize_generic_v1_schema(schema):
                         "min",
                         "max",
                         "step",
+                        "visibleIf",
+                        "requiredIf",
                     ),
                 )
             )
@@ -336,7 +424,7 @@ def normalize_generic_v1_schema(schema):
             )
         )
     return ordered_with_known_keys(
-        {**schema, "schemaFormat": SCHEMA_FORMAT_GENERIC_V1, "sections": normalized_sections},
+        {**schema, "sections": normalized_sections},
         ("schemaFormat", "sections"),
     )
 
@@ -394,9 +482,11 @@ def validate_copy_line(line, field):
     if isinstance(line, str):
         return
     require_object(line, field)
-    reject_unknown_keys(line, ("text", "splitLinesFrom", "omitIfAllBlank"), field)
+    reject_unknown_keys(line, ("text", "splitLinesFrom", "omitIfAllBlank", "showIf"), field)
     require_keys(line, ("text",), field)
     require_string(line["text"], f"{field}.text")
+    if "showIf" in line:
+        require_object(line["showIf"], f"{field}.showIf")
     if "splitLinesFrom" in line:
         ref = line["splitLinesFrom"]
         if not isinstance(ref, str) or not COPY_REF_PATTERN.fullmatch(ref):
@@ -421,12 +511,12 @@ def normalize_copy_format(copy_format):
         if isinstance(line, str):
             normalized_lines.append(line)
         else:
-            normalized_lines.append(ordered_with_known_keys(line, ("text", "splitLinesFrom", "omitIfAllBlank")))
+            normalized_lines.append(ordered_with_known_keys(line, ("text", "splitLinesFrom", "omitIfAllBlank", "showIf")))
     return ordered_with_known_keys({**copy_format, "lines": normalized_lines}, ("format", "lines"))
 
 
 def collect_generic_field_refs(schema):
-    if schema_format(schema) != SCHEMA_FORMAT_GENERIC_V1:
+    if schema_format(schema) not in (SCHEMA_FORMAT_GENERIC_V1, SCHEMA_FORMAT_GENERIC_V2):
         return set()
     refs = set()
     for section in schema["sections"]:
@@ -449,11 +539,16 @@ def iter_copy_line_refs(line):
 
 
 def validate_copy_format_references(schema, copy_format):
-    if copy_format is None or schema_format(schema) != SCHEMA_FORMAT_GENERIC_V1:
+    if copy_format is None or schema_format(schema) not in (SCHEMA_FORMAT_GENERIC_V1, SCHEMA_FORMAT_GENERIC_V2):
         return
     allowed_refs = collect_generic_field_refs(schema)
+    field_refs = generic_field_refs(schema)
     unknown_refs = []
     for line in copy_format["lines"]:
+        if isinstance(line, dict) and "showIf" in line:
+            if schema_format(schema) != SCHEMA_FORMAT_GENERIC_V2:
+                raise SchemaValidationError("copy_format.lines[].showIf requires generic-v2")
+            validate_condition(line["showIf"], field_refs, "copy_format.lines[].showIf")
         for ref in iter_copy_line_refs(line):
             if ref not in allowed_refs:
                 unknown_refs.append(ref)

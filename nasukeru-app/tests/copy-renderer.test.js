@@ -52,3 +52,29 @@ test("splits textarea value into non-empty lines", () => {
   });
   assert.equal(output, "Neuro\nline 1\nline 2\nline 3\nRest: bed rest");
 });
+
+test("uses showIf with condition values", () => {
+  const copyFormat = {
+    format: "text-v1",
+    lines: [
+      "Status: {{vitals.status}}",
+      {
+        text: "Oxygen flow: {{vitals.oxygen_flow}}L",
+        showIf: { op: "eq", field: "vitals.oxygen_use", value: "oxygen" },
+      },
+    ],
+  };
+  const displayValues = {
+    "vitals.status": "stable",
+    "vitals.oxygen_use": "O2使用",
+    "vitals.oxygen_flow": "2",
+  };
+  assert.equal(
+    renderer.renderGenericTemplateCopyText(copyFormat, displayValues, { "vitals.oxygen_use": "oxygen" }),
+    "Status: stable\nOxygen flow: 2L"
+  );
+  assert.equal(
+    renderer.renderGenericTemplateCopyText(copyFormat, displayValues, { "vitals.oxygen_use": "room_air" }),
+    "Status: stable"
+  );
+});

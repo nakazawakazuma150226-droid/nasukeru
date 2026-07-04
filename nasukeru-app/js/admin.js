@@ -103,6 +103,10 @@ function defaultGenericSchema() {
   };
 }
 
+function isGenericSchemaFormat(format) {
+  return format === "generic-v1" || format === "generic-v2";
+}
+
 function defaultGenericCopyFormat() {
   return {
     format: "text-v1",
@@ -296,9 +300,10 @@ function openCreateModal() {
   var form = document.createElement("form");
   form.className = "admin-form";
   var schemaFormatField = formSelect("schema形式", "schema_format", DEFAULT_NEW_SCHEMA_FORMAT, [
-    { value: "generic-v1", label: "generic-v1" }
+    { value: "generic-v1", label: "generic-v1" },
+    { value: "generic-v2", label: "generic-v2" }
   ]);
-  var genericSchemaField = formField("generic-v1 schema JSON", "generic_schema_json", JSON.stringify(defaultGenericSchema(), null, 2), { textarea: true, rows: 10 });
+  var genericSchemaField = formField("generic schema JSON", "generic_schema_json", JSON.stringify(defaultGenericSchema(), null, 2), { textarea: true, rows: 10 });
   var genericCopyFormatField = formField("copy_format JSON", "copy_format_json", JSON.stringify(defaultGenericCopyFormat(), null, 2), { textarea: true, rows: 6 });
   form.appendChild(schemaFormatField);
   form.appendChild(genericSchemaField);
@@ -310,7 +315,7 @@ function openCreateModal() {
   form.appendChild(formField("追加理由", "change_reason", "", { textarea: true, rows: 3 }));
   $("admin-modal-body").appendChild(form);
   function syncGenericSchemaField() {
-    var isGeneric = form.elements.schema_format.value === "generic-v1";
+    var isGeneric = isGenericSchemaFormat(form.elements.schema_format.value);
     genericSchemaField.style.display = isGeneric ? "" : "none";
     genericCopyFormatField.style.display = isGeneric ? "" : "none";
   }
@@ -334,12 +339,13 @@ function openCreateModal() {
     }
     var schema = defaultSchema();
     var copyFormat = null;
-    if (collectText(form, "schema_format") === "generic-v1") {
+    if (isGenericSchemaFormat(collectText(form, "schema_format"))) {
       try {
         schema = JSON.parse(form.elements.generic_schema_json.value);
+        schema.schemaFormat = collectText(form, "schema_format");
         copyFormat = JSON.parse(form.elements.copy_format_json.value);
       } catch (error) {
-        setModalError("generic-v1 schema / copy_format JSONの形式を確認してください。");
+        setModalError("generic schema / copy_format JSONの形式を確認してください。");
         return;
       }
     }
@@ -473,7 +479,7 @@ async function openEditModal(item) {
   try {
     var detail = await getTemplateDetail(item.id);
     var schema = normalizeDetailToSchema(detail);
-    var isGeneric = (detail.schema_format || schema.schemaFormat || "stroke-v1") === "generic-v1";
+    var isGeneric = isGenericSchemaFormat(detail.schema_format || schema.schemaFormat || "stroke-v1");
     var restOptions = isGeneric ? [] : await getRestOptionsCached();
     clearNode(body);
     var form = document.createElement("form");

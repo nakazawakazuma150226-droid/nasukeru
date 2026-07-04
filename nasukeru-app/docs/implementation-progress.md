@@ -189,3 +189,55 @@ Gate:
 Next:
 
 - Phase 5 generic-v2 / Condition Engine
+
+## Phase 5: generic-v2 / Condition Engine
+
+Status: PASS
+
+Base: `064fa7b`
+
+Implemented:
+
+- `generic-v2` schemaFormatを追加
+- Backend condition validatorを追加
+  - known op検証
+  - required / unknown key検証
+  - field ref存在検証
+  - numeric operatorはnumber fieldのみ許可
+  - nested conditionと最大depthを検証
+- field `visibleIf` / `requiredIf` をgeneric-v2のみ許可
+- copy line `showIf` をgeneric-v2のみ許可
+- `js/condition-engine.js` を追加し、DOM非依存の `evaluateCondition(condition, values)` を実装
+- 通常画面で `visibleIf` を評価し、非表示fieldの値をclear
+- 未入力警告で `requiredIf` を評価
+- コピー出力で `showIf` を評価
+- 管理画面のJSON編集で `generic-v2` を選択可能にした
+- README / handoff にcondition契約を追記
+
+Tests:
+
+- Python compile PASS
+- JS syntax check PASS
+- copy renderer unit test PASS
+- generic value unit test PASS
+- condition engine unit test PASS
+- smoke test PASS
+- Browser manual check PASS
+  - `visibleIf` 初期非表示
+  - 条件成立時にfield表示
+  - `showIf` によりコピー条件行を出力
+  - `requiredIf` による不要警告なし
+
+Review:
+
+- Critical: 0
+- High: 0
+- Medium: 0
+
+Gate:
+
+- PASS
+
+Next:
+
+- Phase 6 Medical Safety Rule Layer

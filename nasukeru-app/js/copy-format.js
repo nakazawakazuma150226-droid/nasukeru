@@ -10,7 +10,7 @@ function closeCov() { document.getElementById("cov").classList.remove("show"); c
 function buildCopyText() {
   if (!currentCopyCard) return;
   renderMissingWarning(getMissingRequiredItems(currentCopyCard));
-  if (currentCopyCard.dataset.schemaFormat === "generic-v1") {
+  if (currentCopyCard.dataset.schemaFormat === "generic-v1" || currentCopyCard.dataset.schemaFormat === "generic-v2") {
     buildGenericCopyText();
     return;
   }
@@ -102,6 +102,8 @@ function buildGenericCopyText() {
 
   var currentSection = "";
   currentCopyCard.querySelectorAll(".generic-input").forEach(function(input) {
+    var row = input.closest(".nrow");
+    if (row && row.hidden) return;
     var section = input.dataset.sectionLabel || "";
     if (section && section !== currentSection) {
       if (currentSection) lines.push("");
@@ -118,9 +120,15 @@ function buildGenericCopyText() {
 function collectGenericValues() {
   var values = {};
   currentCopyCard.querySelectorAll(".generic-input").forEach(function(input) {
+    var row = input.closest(".nrow");
+    if (row && row.hidden) return;
     values[input.dataset.sectionId + "." + input.dataset.fieldId] = genericInputValueForCopy(input);
   });
   return values;
+}
+
+function collectGenericConditionValues() {
+  return NasukeruGenericValues.collectTypedValues(currentCopyCard);
 }
 
 function genericInputValueForCopy(input) {
@@ -132,7 +140,8 @@ function genericInputValueForCopy(input) {
 
 function buildGenericTemplateCopyText(copyFormat) {
   var values = collectGenericValues();
-  document.getElementById("prev").textContent = NasukeruCopyRenderer.renderGenericTemplateCopyText(copyFormat, values);
+  var conditionValues = collectGenericConditionValues();
+  document.getElementById("prev").textContent = NasukeruCopyRenderer.renderGenericTemplateCopyText(copyFormat, values, conditionValues);
 }
 
 function doCopy() {

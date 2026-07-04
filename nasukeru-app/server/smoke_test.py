@@ -14,6 +14,7 @@ EXPECTED_GETS = [
     ("/js/admin.js", 200),
     ("/js/field-meta.js", 200),
     ("/js/generic-values.js", 200),
+    ("/js/condition-engine.js", 200),
     ("/api/health", 200),
     ("/api/admin/templates", 200),
     ("/api/admin/templates/mca", 200),
@@ -139,6 +140,51 @@ EXTENDED_GENERIC_COPY_FORMAT = {
     "lines": [
         "Symptoms: {{observe.symptoms}}",
         "Drainage: {{observe.drainage}}ml",
+    ],
+}
+
+
+GENERIC_V2_SCHEMA = {
+    "schemaFormat": "generic-v2",
+    "sections": [
+        {
+            "id": "vitals",
+            "label": "Vitals",
+            "fields": [
+                {
+                    "id": "oxygen_use",
+                    "label": "Oxygen",
+                    "type": "select",
+                    "options": [
+                        {"value": "room_air", "label": "RA"},
+                        {"value": "oxygen", "label": "O2使用"},
+                    ],
+                    "allowEmpty": True,
+                },
+                {
+                    "id": "oxygen_flow",
+                    "label": "Oxygen flow",
+                    "type": "number",
+                    "unit": "L",
+                    "allowEmpty": True,
+                    "visibleIf": {"op": "eq", "field": "vitals.oxygen_use", "value": "oxygen"},
+                    "requiredIf": {"op": "eq", "field": "vitals.oxygen_use", "value": "oxygen"},
+                },
+            ],
+        }
+    ],
+}
+
+
+GENERIC_V2_COPY_FORMAT = {
+    "format": "text-v1",
+    "lines": [
+        "Oxygen: {{vitals.oxygen_use}}",
+        {
+            "text": "Flow: {{vitals.oxygen_flow}}L",
+            "showIf": {"op": "eq", "field": "vitals.oxygen_use", "value": "oxygen"},
+            "omitIfAllBlank": ["vitals.oxygen_flow"],
+        },
     ],
 }
 
@@ -630,6 +676,33 @@ def run_write_tests(failures):
                 failures,
             )
 
+            generic_v2_payload = {
+                "id": "generic_v2_test",
+                "label": "GV2",
+                "full": "Generic v2 test",
+                "category": "procedure",
+                "schema": GENERIC_V2_SCHEMA,
+                "copy_format": GENERIC_V2_COPY_FORMAT,
+                "change_reason": "smoke create generic v2",
+            }
+            assert_status(
+                client.post("/api/templates", json=generic_v2_payload, headers=LOCAL_HEADERS),
+                201,
+                "POST /api/templates generic-v2 condition",
+                failures,
+            )
+            generic_v2_detail = client.get("/api/templates/generic_v2_test")
+            assert_status(generic_v2_detail, 200, "GET /api/templates/generic_v2_test", failures)
+            assert_json_contains(
+                generic_v2_detail,
+                lambda item: item["schema_format"] == "generic-v2"
+                and item["schema"]["sections"][0]["fields"][1]["visibleIf"]["field"] == "vitals.oxygen_use"
+                and item["schema"]["sections"][0]["fields"][1]["requiredIf"]["value"] == "oxygen"
+                and item["copy_format"]["lines"][1]["showIf"]["op"] == "eq",
+                "GET /api/templates/generic_v2_test returns condition schema",
+                failures,
+            )
+
             invalid_generic_payload = {
                 **generic_payload,
                 "id": "bad_generic",
@@ -696,6 +769,40 @@ def run_write_tests(failures):
                 client.post("/api/templates", json=unknown_option_key_payload, headers=LOCAL_HEADERS),
                 400,
                 "POST /api/templates generic-v1 unknown option key",
+                failures,
+            )
+
+            generic_v1_condition_payload = copy.deepcopy(generic_payload)
+            generic_v1_condition_payload["id"] = "bad_v1_condition"
+            generic_v1_condition_payload["schema"]["sections"][0]["fields"][1]["visibleIf"] = {
+                "op": "eq",
+                "field": "basic.procedure",
+                "value": "x",
+            }
+            assert_status(
+                client.post("/api/templates", json=generic_v1_condition_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v1 rejects condition keys",
+                failures,
+            )
+
+            unknown_condition_ref_payload = copy.deepcopy(generic_v2_payload)
+            unknown_condition_ref_payload["id"] = "bad_condition_ref"
+            unknown_condition_ref_payload["schema"]["sections"][0]["fields"][1]["visibleIf"]["field"] = "vitals.unknown"
+            assert_status(
+                client.post("/api/templates", json=unknown_condition_ref_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v2 unknown condition field",
+                failures,
+            )
+
+            invalid_show_if_payload = copy.deepcopy(generic_v2_payload)
+            invalid_show_if_payload["id"] = "bad_show_if"
+            invalid_show_if_payload["copy_format"]["lines"][1]["showIf"]["field"] = "vitals.unknown"
+            assert_status(
+                client.post("/api/templates", json=invalid_show_if_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v2 invalid showIf field",
                 failures,
             )
 

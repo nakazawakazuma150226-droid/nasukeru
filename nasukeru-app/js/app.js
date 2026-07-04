@@ -173,12 +173,7 @@ function showGeneric(template) {
 }
 
 function readGenericInputState(card) {
-  var values = {};
-  if (!card) return values;
-  card.querySelectorAll(".generic-input").forEach(function(input) {
-    values[input.dataset.sectionId + "." + input.dataset.fieldId] = NasukeruGenericValues.parseInputValue(input);
-  });
-  return values;
+  return NasukeruGenericValues.collectTypedValues(card);
 }
 
 function restoreGenericInputState(card, values) {
@@ -188,6 +183,7 @@ function restoreGenericInputState(card, values) {
     var value = Object.prototype.hasOwnProperty.call(values, ref) ? values[ref] : "";
     NasukeruGenericValues.applyInputValue(input, value);
   });
+  updateGenericConditions(card);
 }
 
 async function showTemplateGroup(groupId) {
@@ -261,14 +257,14 @@ function buildTemplateGroupCard(group) {
 function buildGenericCard(template) {
   var div = document.createElement("div");
   div.className = "tc";
-  div.dataset.schemaFormat = "generic-v1";
+  div.dataset.schemaFormat = schemaFormat(template);
   div.dataset.templateId = template.id;
   div.copyFormat = template.copy_format || null;
 
   var hdr = document.createElement("div"); hdr.className = "tch";
   var bdg = document.createElement("span"); bdg.className = "bdg bsav"; bdg.textContent = "可変";
   var ttl = document.createElement("span"); ttl.className = "stroke-title"; ttl.textContent = template.full;
-  var sub = document.createElement("span"); sub.className = "stroke-sub"; sub.textContent = "generic-v1";
+  var sub = document.createElement("span"); sub.className = "stroke-sub"; sub.textContent = schemaFormat(template);
   hdr.appendChild(bdg); hdr.appendChild(ttl); hdr.appendChild(sub);
 
   var body = document.createElement("div"); body.className = "tcb";
@@ -317,6 +313,8 @@ function renderGenericBody(body, schema) {
     });
     body.appendChild(sec);
   });
+  bindGenericConditionUpdates(body);
+  updateGenericConditions(body);
 }
 
 function applyGenericInputMeta(input, section, field) {
@@ -327,10 +325,12 @@ function applyGenericInputMeta(input, section, field) {
   input.dataset.fieldType = field.type;
   input.dataset.requiredWarning = field.requiredWarning ? "true" : "false";
   input.genericOptionLabels = optionLabelMap(field.options);
+  input.genericRequiredIf = field.requiredIf || null;
 }
 
 function makeGenericField(section, field) {
   var row = document.createElement("div"); row.className = "nrow";
+  row.genericVisibleIf = field.visibleIf || null;
   var lbl = document.createElement("div"); lbl.className = "nlabel"; lbl.textContent = field.label;
   var input;
   if (field.type === "textarea") {
@@ -372,6 +372,7 @@ function makeGenericField(section, field) {
           values.push(checked.value);
         });
         input.value = values.join("、");
+        input.dispatchEvent(new Event("change", { bubbles: true }));
       });
       item.appendChild(checkbox);
       item.appendChild(text);
@@ -403,6 +404,30 @@ function makeGenericField(section, field) {
     row.appendChild(unit);
   }
   return row;
+}
+
+function bindGenericConditionUpdates(container) {
+  container.querySelectorAll(".generic-input").forEach(function(input) {
+    input.addEventListener("input", function(){ updateGenericConditions(container); });
+    input.addEventListener("change", function(){ updateGenericConditions(container); });
+  });
+}
+
+function updateGenericConditions(container) {
+  var values = NasukeruGenericValues.collectTypedValues(container);
+  container.querySelectorAll(".nrow").forEach(function(row) {
+    var input = row.querySelector(".generic-input");
+    if (!input) return;
+    var visible = row.genericVisibleIf
+      ? NasukeruConditionEngine.evaluateCondition(row.genericVisibleIf, values)
+      : true;
+    row.hidden = !visible;
+    input.dataset.conditionVisible = visible ? "true" : "false";
+    if (!visible) {
+      NasukeruGenericValues.applyInputValue(input, "");
+      values[NasukeruGenericValues.fieldRef(input)] = NasukeruGenericValues.parseInputValue(input);
+    }
+  });
 }
 
 function switchStrokeTab(idx) {
@@ -617,7 +642,10 @@ async function initApp() {
   try {
     templates = await getTemplates();
     strokeTemplates = templates.filter(function(template){ return schemaFormat(template) === "stroke-v1"; });
-    genericTemplates = templates.filter(function(template){ return schemaFormat(template) === "generic-v1"; });
+    genericTemplates = templates.filter(function(template){
+      var fmt = schemaFormat(template);
+      return fmt === "generic-v1" || fmt === "generic-v2";
+    });
     quickTemplates = await getQuickTemplates();
     restOptions = await getRestOptions();
     await loadSearchKeywords();

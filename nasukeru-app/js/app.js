@@ -176,7 +176,7 @@ function readGenericInputState(card) {
   var values = {};
   if (!card) return values;
   card.querySelectorAll(".generic-input").forEach(function(input) {
-    values[input.dataset.sectionId + "." + input.dataset.fieldId] = input.value || "";
+    values[input.dataset.sectionId + "." + input.dataset.fieldId] = NasukeruGenericValues.parseInputValue(input);
   });
   return values;
 }
@@ -185,17 +185,8 @@ function restoreGenericInputState(card, values) {
   if (!card || !values) return;
   card.querySelectorAll(".generic-input").forEach(function(input) {
     var ref = input.dataset.sectionId + "." + input.dataset.fieldId;
-    var value = values[ref] || "";
-    input.value = value;
-    if (input.type === "hidden") {
-      var selected = value ? value.split("、") : [];
-      var row = input.closest(".nrow");
-      if (row) {
-        row.querySelectorAll(".generic-multi-option input[type='checkbox']").forEach(function(checkbox) {
-          checkbox.checked = selected.indexOf(checkbox.value) >= 0;
-        });
-      }
-    }
+    var value = Object.prototype.hasOwnProperty.call(values, ref) ? values[ref] : "";
+    NasukeruGenericValues.applyInputValue(input, value);
   });
 }
 

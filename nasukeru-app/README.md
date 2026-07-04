@@ -166,6 +166,8 @@ SQLite DB
 - 通常画面の選択UIは内部値に `value`、表示とコピー出力に `label` を使う
 - 通常入力画面は `stroke-v1` を従来タブUI、`generic-v1` を section/field ベースの動的UIとして表示する
 - `generic-v1` の入力初期値は安全側で空欄にする
+- 通常画面のgeneric入力値は `js/generic-values.js` を通して型付き状態に変換する
+- `number` の空欄は `null`、`0` は有効値、`multi_select` は配列として扱う
 - `generic-v1` のコピー出力は `copy_format_json` の `text-v1` 形式を優先する
 - `copy_format_json` が無い場合は暫定の汎用形式で出力する
 - `text-v1` は `lines` 配列と `{{section.field}}` 参照をサポートする

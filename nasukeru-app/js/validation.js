@@ -34,7 +34,8 @@ function getMissingRequiredItems(card) {
 function getMissingGenericRequiredItems(card) {
   var missing = [];
   card.querySelectorAll(".generic-input").forEach(function(input) {
-    if (input.dataset.requiredWarning === "true" && !input.value.trim()) {
+    var value = NasukeruGenericValues.parseInputValue(input);
+    if (input.dataset.requiredWarning === "true" && NasukeruGenericValues.isBlankValue(value)) {
       missing.push(input.dataset.fieldLabel || "入力項目");
     }
   });

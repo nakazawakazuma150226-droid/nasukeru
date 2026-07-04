@@ -123,25 +123,11 @@ function collectGenericValues() {
   return values;
 }
 
-function genericOptionLabel(input, value) {
-  var labels = input.genericOptionLabels || {};
-  return labels[value] || value;
-}
-
 function genericInputValueForCopy(input) {
-  var raw = input.value || "";
-  if (!raw) return "";
-  if (input.dataset.fieldType === "multi_select") {
-    return raw.split("、").filter(function(value) {
-      return value;
-    }).map(function(value) {
-      return genericOptionLabel(input, value);
-    }).join("、");
-  }
-  if (input.dataset.fieldType === "select") {
-    return genericOptionLabel(input, raw);
-  }
-  return raw;
+  return NasukeruGenericValues.formatInputValueForCopy(
+    input,
+    NasukeruGenericValues.parseInputValue(input)
+  );
 }
 
 function buildGenericTemplateCopyText(copyFormat) {

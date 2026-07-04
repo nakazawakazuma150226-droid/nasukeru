@@ -151,3 +151,41 @@ Gate:
 Next:
 
 - Phase 4 Typed Value State
+
+## Phase 4: Typed Value State
+
+Status: PASS
+
+Base: `aa6d2b9`
+
+Implemented:
+
+- `js/generic-values.js` を追加し、generic入力値のparse / format / blank判定 / 復元を共通化
+- `number` の空欄を `null`、`0` を有効値として扱う
+- `multi_select` を状態上は配列として扱い、DOM hidden valueへの復元だけ `、` 区切りにする
+- groupタブの一時入力状態を型付き値で保存・復元
+- genericコピー出力は型付き値をlabel表示へ整形してから `copy-renderer` に渡す
+- generic未入力警告は共通blank判定を使用
+- README / handoff にTyped Value Stateの現行ルールを追記
+
+Tests:
+
+- Python compile PASS
+- JS syntax check PASS
+- copy renderer unit test PASS
+- generic value unit test PASS
+- smoke test PASS
+
+Review:
+
+- Critical: 0
+- High: 0
+- Medium: 0
+
+Gate:
+
+- PASS
+
+Next:
+
+- Phase 5 generic-v2 / Condition Engine

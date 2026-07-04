@@ -13,6 +13,7 @@ EXPECTED_GETS = [
     ("/admin/", 200),
     ("/js/admin.js", 200),
     ("/js/field-meta.js", 200),
+    ("/js/generic-values.js", 200),
     ("/api/health", 200),
     ("/api/admin/templates", 200),
     ("/api/admin/templates/mca", 200),

@@ -12,6 +12,7 @@ EXPECTED_GETS = [
     ("/admin", 200),
     ("/admin/", 200),
     ("/js/admin.js", 200),
+    ("/js/admin-builder.js", 200),
     ("/js/field-meta.js", 200),
     ("/js/generic-values.js", 200),
     ("/js/condition-engine.js", 200),

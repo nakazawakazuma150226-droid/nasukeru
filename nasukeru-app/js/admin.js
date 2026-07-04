@@ -116,6 +116,43 @@ function defaultGenericCopyFormat() {
   };
 }
 
+function appendGenericEditor(form, schema, copyFormat, schemaFormatGetter) {
+  var builderSection = formSection("Template Builder");
+  var mount = document.createElement("div");
+  builderSection.appendChild(mount);
+  form.appendChild(builderSection);
+  var builder = NasukeruAdminBuilder.create(mount, schema, copyFormat || defaultGenericCopyFormat(), {
+    schemaFormat: schemaFormatGetter
+  });
+  form.genericBuilder = builder;
+
+  var details = document.createElement("details");
+  details.className = "admin-dev-mode";
+  var summary = document.createElement("summary");
+  summary.textContent = "Developer Mode / JSON";
+  details.appendChild(summary);
+  var useJson = document.createElement("label");
+  useJson.className = "admin-dev-toggle";
+  var checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.name = "use_json_mode";
+  var span = document.createElement("span");
+  span.textContent = "JSONを保存に使用する";
+  useJson.appendChild(checkbox);
+  useJson.appendChild(span);
+  details.appendChild(useJson);
+  details.appendChild(formField("generic schema JSON", "generic_schema_json", JSON.stringify(schema, null, 2), { textarea: true, rows: 10 }));
+  details.appendChild(formField("copy_format JSON", "copy_format_json", JSON.stringify(copyFormat || defaultGenericCopyFormat(), null, 2), { textarea: true, rows: 6 }));
+  form.appendChild(details);
+  return builder;
+}
+
+function syncGenericJsonFromBuilder(form, schemaFormat) {
+  if (!form.genericBuilder) return;
+  form.elements.generic_schema_json.value = JSON.stringify(form.genericBuilder.collectSchema(schemaFormat), null, 2);
+  form.elements.copy_format_json.value = JSON.stringify(form.genericBuilder.collectCopyFormat(), null, 2);
+}
+
 function setModalError(message) {
   var el = $("admin-modal-error");
   el.textContent = message || "";
@@ -303,24 +340,17 @@ function openCreateModal() {
     { value: "generic-v1", label: "generic-v1" },
     { value: "generic-v2", label: "generic-v2" }
   ]);
-  var genericSchemaField = formField("generic schema JSON", "generic_schema_json", JSON.stringify(defaultGenericSchema(), null, 2), { textarea: true, rows: 10 });
-  var genericCopyFormatField = formField("copy_format JSON", "copy_format_json", JSON.stringify(defaultGenericCopyFormat(), null, 2), { textarea: true, rows: 6 });
   form.appendChild(schemaFormatField);
-  form.appendChild(genericSchemaField);
-  form.appendChild(genericCopyFormatField);
+  appendGenericEditor(form, defaultGenericSchema(), defaultGenericCopyFormat(), function(){ return collectText(form, "schema_format"); });
   form.appendChild(formField("ID", "id", "", { placeholder: "例: brainstem_custom" }));
   form.appendChild(formField("表示名", "label", "", { placeholder: "例: 脳幹" }));
   form.appendChild(formField("正式名称", "full", "", { placeholder: "例: 脳幹梗塞" }));
   form.appendChild(formField("分類", "category", "stroke"));
   form.appendChild(formField("追加理由", "change_reason", "", { textarea: true, rows: 3 }));
   $("admin-modal-body").appendChild(form);
-  function syncGenericSchemaField() {
-    var isGeneric = isGenericSchemaFormat(form.elements.schema_format.value);
-    genericSchemaField.style.display = isGeneric ? "" : "none";
-    genericCopyFormatField.style.display = isGeneric ? "" : "none";
-  }
-  form.elements.schema_format.addEventListener("change", syncGenericSchemaField);
-  syncGenericSchemaField();
+  form.elements.schema_format.addEventListener("change", function() {
+    if (form.genericBuilder) form.genericBuilder.refresh();
+  });
 
   $("admin-modal-actions").appendChild(button("閉じる", "btn bg", closeModal));
   $("admin-modal-actions").appendChild(button("追加", "btn bp", async function() {
@@ -341,11 +371,11 @@ function openCreateModal() {
     var copyFormat = null;
     if (isGenericSchemaFormat(collectText(form, "schema_format"))) {
       try {
-        schema = JSON.parse(form.elements.generic_schema_json.value);
+        schema = collectGenericSchema(form);
         schema.schemaFormat = collectText(form, "schema_format");
-        copyFormat = JSON.parse(form.elements.copy_format_json.value);
+        copyFormat = collectGenericCopyFormat(form);
       } catch (error) {
-        setModalError("generic schema / copy_format JSONの形式を確認してください。");
+        setModalError(error.message || "generic schema / copy_format JSONの形式を確認してください。");
         return;
       }
     }
@@ -446,24 +476,35 @@ function collectSchema(form) {
 }
 
 function appendGenericSchemaEditor(form, schema) {
-  form.appendChild(formField("generic-v1 schema JSON", "generic_schema_json", JSON.stringify(schema, null, 2), { textarea: true, rows: 16 }));
+  appendGenericEditor(form, schema, null, function(){ return collectText(form, "schema_format"); });
 }
 
 function appendGenericCopyFormatEditor(form, copyFormat) {
-  form.appendChild(formField("copy_format JSON", "copy_format_json", JSON.stringify(copyFormat || defaultGenericCopyFormat(), null, 2), { textarea: true, rows: 8 }));
+  if (form.genericBuilder) {
+    form.elements.copy_format_json.value = JSON.stringify(copyFormat || defaultGenericCopyFormat(), null, 2);
+  }
 }
 
 function collectGenericSchema(form) {
   try {
-    return JSON.parse(form.elements.generic_schema_json.value);
+    if (form.elements.use_json_mode && form.elements.use_json_mode.checked) {
+      return JSON.parse(form.elements.generic_schema_json.value);
+    }
+    var schemaFormat = collectText(form, "schema_format") || "generic-v1";
+    syncGenericJsonFromBuilder(form, schemaFormat);
+    return form.genericBuilder.collectSchema(schemaFormat);
   } catch (error) {
-    throw new Error("generic-v1 schema JSONの形式を確認してください。");
+    throw new Error("generic schema JSONの形式を確認してください。");
   }
 }
 
 function collectGenericCopyFormat(form) {
   try {
-    return JSON.parse(form.elements.copy_format_json.value);
+    if (form.elements.use_json_mode && form.elements.use_json_mode.checked) {
+      return JSON.parse(form.elements.copy_format_json.value);
+    }
+    syncGenericJsonFromBuilder(form, collectText(form, "schema_format") || "generic-v1");
+    return form.genericBuilder.collectCopyFormat();
   } catch (error) {
     throw new Error("copy_format JSONの形式を確認してください。");
   }
@@ -489,8 +530,7 @@ async function openEditModal(item) {
     form.appendChild(formField("分類", "category", item.category, { readonly: true }));
     form.appendChild(formField("schema形式", "schema_format", detail.schema_format || "stroke-v1", { readonly: true }));
     if (isGeneric) {
-      appendGenericSchemaEditor(form, schema);
-      appendGenericCopyFormatEditor(form, detail.copy_format);
+      appendGenericEditor(form, schema, detail.copy_format, function(){ return collectText(form, "schema_format"); });
     } else {
       appendSchemaFields(form, schema, restOptions);
     }

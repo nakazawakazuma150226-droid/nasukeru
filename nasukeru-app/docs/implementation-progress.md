@@ -297,3 +297,53 @@ Gate:
 Next:
 
 - Phase 7 Admin Template Builder
+
+## Phase 7: Admin Template Builder
+
+Status: PASS
+
+Base: `9ef3405`
+
+Implemented:
+
+- `js/admin-builder.js` を追加
+- 管理画面のgeneric schema / copy_format編集をTemplate Builder化
+- セクション追加 / 削除をフォームで操作可能にした
+- 項目追加 / 削除をフォームで操作可能にした
+- 項目ID、ラベル、種別、単位、placeholder、補足説明を編集可能にした
+- `blankPolicy`、`hardRange`、`warningRange` をフォームで編集可能にした
+- 選択肢を `value` / `label` の行として追加 / 削除できるOption Builderを追加
+- `visibleIf`、`requiredIf`、copy line `showIf` を単純条件として編集できるCondition Builderを追加
+- コピー出力行を追加 / 削除できるCopy Line Builderを追加
+- コピー出力行へ入力項目参照 `{{section.field}}` をボタンで挿入できるようにした
+- Developer Mode / JSONを残し、高度なschema / copy_format編集に使えるようにした
+- README / handoff に管理画面ビルダーの現行仕様を追記
+
+Tests:
+
+- Python compile PASS
+- JS syntax check PASS
+- copy renderer unit test PASS
+- generic value unit test PASS
+- condition engine unit test PASS
+- safety rules unit test PASS
+- smoke test PASS
+- Browser manual check PASS
+  - Template Builder表示
+  - generic-v1新規追加
+  - `copy_format`保存
+  - select field + option保存
+
+Review:
+
+- Critical: 0
+- High: 0
+- Medium: 0
+
+Gate:
+
+- PASS
+
+Next:
+
+- Phase 8 Version Integrity / Publication Workflow

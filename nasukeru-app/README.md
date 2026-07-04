@@ -10,7 +10,7 @@
 - 患者情報や入力内容は保存しない
 - テンプレートの初期値は空欄
 - コピー前に重要項目の未入力を警告する
-- 警告があってもコピーは止めない
+- 原則は警告してコピー可能。`blankPolicy=block` や `hardRange` 逸脱など明示された安全ルールだけコピーを止める
 - テンプレート本体は SQLite から読み込む
 
 ## ファイル構成
@@ -39,6 +39,7 @@ nasukeru-app/
     copy-renderer.js
     copy-format.js
     app.js
+    admin-builder.js
     admin.js
   tests/
     copy-renderer.test.js
@@ -109,8 +110,13 @@ SQLite DB
 
 - `js/admin.js`
   - `/admin` の一覧表示、モーダル、画面バリデーション、管理API呼び出しを制御する
-  - `stroke-v1` は既存の専用フォーム、`generic-v1` はJSON編集フォームで扱う
+  - `stroke-v1` は既存の専用フォーム、`generic-v1` / `generic-v2` はTemplate Builderで扱う
   - 編集時は現行 schema を読み込んで新バージョンとして保存する
+
+- `js/admin-builder.js`
+  - 管理画面のTemplate Builder
+  - セクション、項目、選択肢、条件、コピー出力行をフォームで編集する
+  - JSON Developer Modeは詳細編集用に残す
 
 - `server/init_db.py`
   - SQLite DBを作成し、足りないテーブルと初期テンプレートデータを補う
@@ -162,7 +168,7 @@ SQLite DB
 
 ## 可変テンプレートの段階導入
 
-現在は `stroke-v1` と `generic-v1` を併存させた上で、脳梗塞5テンプレートも `generic-v1` へ移行済みです。通常画面の表示とコピー出力も `generic-v1` を主経路にし、`stroke-v1` は旧バージョン・後方互換用として残す Phase 5 です。
+現在は `stroke-v1` と `generic-v1` / `generic-v2` を併存させた上で、脳梗塞5テンプレートも `generic-v1` へ移行済みです。通常画面の表示とコピー出力もgeneric系を主経路にし、`stroke-v1` は旧バージョン・後方互換用として残します。
 
 - `schemaFormat` が無い既存テンプレートは `stroke-v1` として扱う
 - `generic-v1` は `sections` と `fields` を持つ可変schemaとして保存できる
@@ -181,7 +187,7 @@ SQLite DB
 - `text-v1` の各行は文字列、または `{ "text": "...", "omitIfAllBlank": ["section.field"], "splitLinesFrom": "section.field" }` の行オブジェクトで定義できる
 - `omitIfAllBlank` は指定した入力がすべて空欄のとき、その行をコピー出力から省略する
 - `splitLinesFrom` は指定した入力を改行で分割し、空行を除いて複数行として出力する
-- `copy_format` の参照先は `generic-v1` schema に存在する field のみ許可する
+- `copy_format` の参照先は `generic-v1` / `generic-v2` schema に存在する field のみ許可する
 - `generic-v2` の条件式は `eq` / `neq` / `in` / `not_in` / `contains` / `gt` / `gte` / `lt` / `lte` / `is_blank` / `and` / `or` / `not` をサポートする
 - `visibleIf` はfield表示、`requiredIf` は未入力警告、copy line の `showIf` はコピー出力行の表示条件に使う
 - 非表示になったfieldの値はclearし、hidden値がcopyや未入力警告に漏れないようにする
@@ -190,13 +196,15 @@ SQLite DB
 - `copy-renderer` は `{ text, unresolvedRefs, warnings }` の構造化結果も返せる
 - テンプレート更新時はfield削除、`blankPolicy`緩和、condition変更、hardRange緩和、copy行削除を高リスク変更としてレスポンスと監査ログに残す
 - より高度な医療安全ルールは次フェーズ以降で拡張する
-- 管理画面の新規追加は `generic-v1` 固定とし、`stroke-v1` は旧バージョン・後方互換用として残す
+- 管理画面の新規追加は `generic-v1` / `generic-v2` を選択可能とし、`stroke-v1` は旧バージョン・後方互換用として残す
+- 管理画面ではTemplate Builderでセクション、項目、選択肢、単純条件、コピー出力行を編集できる
+- ネスト条件や高度なcopy_formatはDeveloper Mode / JSONで編集する
 - 通常画面のクイックリストと検索は `target` で明示的に `template` または `group` を開く
 - 脳梗塞5テンプレートは `cerebral_infarction` groupとして表示し、group内タブは既存generic rendererを再利用する
 
 脳梗塞5テンプレートは `generic-v1` へ移行済みです。共通項目に加えて、MCA/ACA/PCA/ラクナ/脳幹ごとの個別観察項目を空欄フィールドとして持ちます。既存の `stroke-v1` 版は履歴に残し、DB初期化時のマイグレーション `004` で新バージョンとして適用します。マイグレーション `005` では、既存stroke項目だけを入力した場合に旧 `stroke-v1` のコピー出力と一致する `copy_format_json` へ更新します。
 
-脳卒中共通テンプレート（`neuro_common`）は `generic-v1` として追加済みです。`multi_select` と `number` を使い、意識レベル、バイタル、瞳孔・眼球所見、運動機能、NIHSS、高次脳機能、頭蓋内圧亢進症状、嚥下、安静度・ADL、排泄、治療を平坦な共通観察項目として扱います。条件分岐、状況グループ、派生出力は含めず、次フェーズで扱います。
+脳卒中共通テンプレート（`neuro_common`）は `generic-v1` として追加済みです。`multi_select` と `number` を使い、意識レベル、バイタル、瞳孔・眼球所見、運動機能、NIHSS、高次脳機能、頭蓋内圧亢進症状、嚥下、安静度・ADL、排泄、治療を平坦な共通観察項目として扱います。条件分岐は `generic-v2` で対応済みです。状況グループ、派生出力は次フェーズ以降で扱います。
 
 ## 現在のデータフロー
 
@@ -423,7 +431,9 @@ APIの返却形は既存画面に合わせて維持しています。
 
 `/admin` または `/admin/` でローカル管理画面を開けます。通常画面とは分離しており、テンプレートの追加、schema編集、論理削除、復元、バージョン履歴・監査ログ確認を行います。通常画面のヘッダーから管理画面へ、管理画面のヘッダーから通常画面へ移動できます。
 
-管理画面の最小版では `label` / `full` / `category` の既存テンプレート編集は行いません。編集対象は schema の新バージョン作成です。削除済みテンプレートは編集できませんが、履歴と監査ログは確認できます。
+Template Builderでは、セクション、項目、選択肢、空欄時ルール、数値範囲、単純条件、コピー出力行をフォームで編集できます。コピー出力行には入力項目参照をボタンで挿入できます。JSON Developer Modeは、ネスト条件や高度なcopy_formatを扱うための詳細編集として残しています。
+
+管理画面の最小版では `label` / `full` / `category` の既存テンプレート編集は行いません。編集対象は schema / copy_format の新バージョン作成です。削除済みテンプレートは編集できませんが、履歴と監査ログは確認できます。
 
 ## 運用前の注意
 

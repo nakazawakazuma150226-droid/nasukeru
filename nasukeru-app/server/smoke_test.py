@@ -271,6 +271,16 @@ def render_generic_copy(copy_format, values):
                 if text:
                     lines.append(render_template_line(line.get("text", f"{{{{{split_ref}}}}}"), values, split_ref, text))
             continue
+        if isinstance(line.get("segments"), list):
+            parts = []
+            for segment in line["segments"]:
+                value = values.get(segment["ref"])
+                if value is None or not str(value).strip():
+                    continue
+                parts.append(f"{segment.get('label', '')}{value}{segment.get('suffix', '')}")
+            if parts:
+                lines.append(f"{line.get('prefix', '')}{line.get('separator', '').join(parts)}")
+            continue
         lines.append(render_template_line(line.get("text", ""), values))
     return "\n".join(lines)
 
@@ -325,7 +335,7 @@ def render_legacy_stroke_copy(full, values):
     return "\n".join(lines)
 
 
-def assert_stroke_copy_compat(client, failures):
+def assert_stroke_copy_output(client, failures):
     response = client.get("/api/templates/mca")
     data = response.get_json()
     copy_format = data["copy_format"]
@@ -384,12 +394,43 @@ def assert_stroke_copy_compat(client, failures):
         ),
     ]
     for name, values in cases:
-        expected = render_legacy_stroke_copy(full, values)
         actual = render_generic_copy(copy_format, values)
-        matched = expected == actual
-        print((" OK " if matched else "FAIL") + f" stroke copy compat {name}")
+        if name == "empty":
+            matched = "__" not in actual and "頭痛：" not in actual and "MMT：" not in actual and "安静度\n__" not in actual
+        elif name == "representative":
+            expected = render_legacy_stroke_copy(full, values)
+            matched = expected == actual
+        else:
+            matched = (
+                "めまい：あり" in actual
+                and "頭痛：" not in actual
+                and "嘔気：" not in actual
+                and "バレー徴候：" not in actual
+                and "ミンガッチー徴候：" not in actual
+                and "MMT：右上肢5/5、右下肢5/5、左上肢4/5、左下肢4/5" in actual
+                and "安静度\nベッド上安静" in actual
+            )
+        print((" OK " if matched else "FAIL") + f" stroke copy output {name}")
         if not matched:
-            failures.append((f"stroke copy compat {name}", expected, actual))
+            failures.append((f"stroke copy output {name}", "blank fields omitted or representative output unchanged", actual))
+
+    partial_values = {
+        "vitals.jcs": "Ⅲ-300",
+        "vitals.t": "30",
+        "vitals.bp": "30",
+    }
+    partial_output = render_generic_copy(copy_format, partial_values)
+    matched = (
+        "JCSⅢ-300　T30℃　BP30mmHg" in partial_output
+        and "HR" not in partial_output
+        and "SpO₂" not in partial_output
+        and "頭痛：" not in partial_output
+        and "瞳孔：" not in partial_output
+        and "MMT：" not in partial_output
+    )
+    print((" OK " if matched else "FAIL") + " stroke copy omits blank labels")
+    if not matched:
+        failures.append(("stroke copy omits blank labels", "no labels for blank values", partial_output))
 
     extra_values = {**cases[1][1], "stroke_findings.left_mouth_droop": "あり"}
     extra_output = render_generic_copy(copy_format, extra_values)
@@ -1241,7 +1282,7 @@ def run_write_tests(failures):
                 "POST /api/templates generic-v1 invalid copy_format split ref",
                 failures,
             )
-            assert_stroke_copy_compat(client, failures)
+            assert_stroke_copy_output(client, failures)
     finally:
         if original_db_path is None:
             os.environ.pop("NASUKERU_DB_PATH", None)

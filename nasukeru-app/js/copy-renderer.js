@@ -31,6 +31,18 @@
     });
   }
 
+  function renderSegments(line, values) {
+    if (!line || !Array.isArray(line.segments)) return null;
+    var parts = [];
+    line.segments.forEach(function(segment) {
+      var value = values[segment.ref];
+      if (isBlank(value)) return;
+      parts.push(String(segment.label || "") + String(value) + String(segment.suffix || ""));
+    });
+    if (!parts.length) return null;
+    return String(line.prefix || "") + parts.join(line.separator || "");
+  }
+
   function shouldOmitCopyLine(line, values) {
     if (!line || !Array.isArray(line.omitIfAllBlank)) return false;
     return line.omitIfAllBlank.every(function(ref) {
@@ -61,6 +73,11 @@
       if (line.showIf && conditionEngine && !conditionEngine.evaluateCondition(line.showIf, conditionValues || values)) return;
       if (shouldOmitCopyLine(line, values)) return;
       if (appendSplitCopyLines(lines, line, values, unresolvedRefs)) return;
+      if (Array.isArray(line.segments)) {
+        var segmentLine = renderSegments(line, values);
+        if (segmentLine) lines.push(segmentLine);
+        return;
+      }
       lines.push(renderCopyLine(line.text || "", values, null, null, unresolvedRefs));
     });
     return {

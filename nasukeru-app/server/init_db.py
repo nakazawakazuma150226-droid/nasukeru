@@ -282,31 +282,63 @@ def build_generic_stroke_copy_format(template):
         }
         for field in STROKE_EXTRA_FIELDS[template["id"]]
     ]
+    vital_line = {
+        "segments": [
+            {"ref": "vitals.jcs", "label": "JCS"},
+            {"ref": "vitals.t", "label": "T", "suffix": "℃"},
+            {"ref": "vitals.bp", "label": "BP", "suffix": "mmHg"},
+            {"ref": "vitals.hr", "label": "HR"},
+            {"ref": "vitals.spo2", "label": "SpO₂", "suffix": "%"},
+        ],
+        "separator": "　",
+    }
+    mmt_line = {
+        "prefix": "MMT：",
+        "segments": [
+            {"ref": "mmt.ru", "label": "右上肢"},
+            {"ref": "mmt.rl", "label": "右下肢"},
+            {"ref": "mmt.lu", "label": "左上肢"},
+            {"ref": "mmt.ll", "label": "左下肢"},
+        ],
+        "separator": "、",
+    }
+    neuro_refs = [
+        "neuro.pupil",
+        "neuro.light",
+        "neuro.eye",
+        "neuro.barre",
+        "neuro.mingazzini",
+        "mmt.ru",
+        "mmt.rl",
+        "mmt.lu",
+        "mmt.ll",
+        "neuro.nihss",
+        "neuro.other",
+    ]
     return normalize_copy_format(
         {
             "format": "text-v1",
             "lines": [
                 template["full"],
                 "",
-                "JCS{{vitals.jcs}}　T{{vitals.t}}℃　BP{{vitals.bp}}mmHg　HR{{vitals.hr}}　SpO₂{{vitals.spo2}}%",
+                vital_line,
                 "",
-                "頭痛：{{symptoms.headache}}",
-                "めまい：{{symptoms.dizzy}}",
-                "嘔気：{{symptoms.nausea}}",
+                {"text": "頭痛：{{symptoms.headache}}", "omitIfAllBlank": ["symptoms.headache"]},
+                {"text": "めまい：{{symptoms.dizzy}}", "omitIfAllBlank": ["symptoms.dizzy"]},
+                {"text": "嘔気：{{symptoms.nausea}}", "omitIfAllBlank": ["symptoms.nausea"]},
                 "",
-                "神経所見",
-                "瞳孔：{{neuro.pupil}}",
-                "対光反射：{{neuro.light}}",
-                "眼球位置：{{neuro.eye}}",
+                {"text": "神経所見", "omitIfAllBlank": neuro_refs},
+                {"text": "瞳孔：{{neuro.pupil}}", "omitIfAllBlank": ["neuro.pupil"]},
+                {"text": "対光反射：{{neuro.light}}", "omitIfAllBlank": ["neuro.light"]},
+                {"text": "眼球位置：{{neuro.eye}}", "omitIfAllBlank": ["neuro.eye"]},
                 {"text": "バレー徴候：{{neuro.barre}}", "omitIfAllBlank": ["neuro.barre"]},
                 {"text": "ミンガッチー徴候：{{neuro.mingazzini}}", "omitIfAllBlank": ["neuro.mingazzini"]},
-                "MMT：右上肢{{mmt.ru}}、右下肢{{mmt.rl}}、左上肢{{mmt.lu}}、左下肢{{mmt.ll}}",
-                "NIHSS：{{neuro.nihss}}",
+                mmt_line,
+                {"text": "NIHSS：{{neuro.nihss}}", "omitIfAllBlank": ["neuro.nihss"]},
                 {"text": "{{neuro.other}}", "splitLinesFrom": "neuro.other", "omitIfAllBlank": ["neuro.other"]},
                 *extra_lines,
                 "",
-                "安静度",
-                "{{rest.level}}",
+                {"text": "安静度\n{{rest.level}}", "omitIfAllBlank": ["rest.level"]},
             ],
         }
     )
@@ -1293,6 +1325,104 @@ def migrate_jcs_option_values(conn, now):
     record_migration(conn, "008", "fix jcs option values", now)
 
 
+def migrate_stroke_blank_omission_copy_format(conn, now):
+    if migration_applied(conn, "009"):
+        return
+
+    for template in STROKE_TYPES:
+        row = conn.execute(
+            """
+            SELECT
+              t.id,
+              t.current_version_id,
+              COALESCE(v.schema_json, t.schema_json) AS current_schema_json,
+              v.copy_format_json AS current_copy_format_json
+            FROM templates t
+            LEFT JOIN template_versions v ON v.id = t.current_version_id
+            WHERE t.id = ?
+            """,
+            (template["id"],),
+        ).fetchone()
+        if row is None:
+            continue
+
+        schema = json.loads(row[2])
+        if schema.get("schemaFormat") != "generic-v1":
+            continue
+        before_copy_format = json.loads(row[3]) if row[3] else None
+        copy_format = build_generic_stroke_copy_format(template)
+        schema_json = json.dumps(schema, ensure_ascii=False)
+        copy_format_json = json.dumps(copy_format, ensure_ascii=False)
+        version_number = conn.execute(
+            """
+            SELECT COALESCE(MAX(version_number), 0) + 1
+            FROM template_versions
+            WHERE template_id = ?
+            """,
+            (template["id"],),
+        ).fetchone()[0]
+        cursor = conn.execute(
+            """
+            INSERT INTO template_versions
+              (template_id, version_number, schema_json, copy_format_json,
+               change_summary, change_reason, created_by, created_at, approved_by, approved_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'system', ?, 'system', ?)
+            """,
+            (
+                template["id"],
+                version_number,
+                schema_json,
+                copy_format_json,
+                "Omit blank fields from stroke copy output",
+                "Hide unentered stroke fields from generated copy text",
+                now,
+                now,
+            ),
+        )
+        version_id = cursor.lastrowid
+        conn.execute(
+            """
+            UPDATE template_versions
+            SET status = 'published', approved_by = 'system', approved_at = ?
+            WHERE id = ?
+            """,
+            (now, version_id),
+        )
+        conn.execute(
+            """
+            UPDATE templates
+            SET current_version_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (version_id, now, template["id"]),
+        )
+        conn.execute(
+            """
+            UPDATE template_versions
+            SET status = 'retired'
+            WHERE template_id = ? AND status = 'published' AND id <> ?
+            """,
+            (template["id"], version_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO template_audit_logs
+              (template_id, version_id, action, actor_name, acted_at, before_json, after_json, reason)
+            VALUES (?, ?, 'migrate', 'system', ?, ?, ?, ?)
+            """,
+            (
+                template["id"],
+                version_id,
+                now,
+                json.dumps({"schema": schema, "copy_format": before_copy_format}, ensure_ascii=False),
+                json.dumps({"schema": schema, "copy_format": copy_format}, ensure_ascii=False),
+                "Hide unentered stroke fields from generated copy output",
+            ),
+        )
+
+    record_migration(conn, "009", "omit blank stroke copy fields", now)
+
+
 def seed_rest_options(conn):
     for order, label in enumerate(REST_OPTIONS, start=1):
         if exists(conn, "SELECT 1 FROM rest_options WHERE label = ?", (label,)):
@@ -1439,6 +1569,7 @@ def main():
         migrate_add_neuro_common_template(conn, now)
         migrate_stroke_jcs_to_select(conn, now)
         migrate_jcs_option_values(conn, now)
+        migrate_stroke_blank_omission_copy_format(conn, now)
         normalize_template_version_statuses(conn)
         seed_template_groups(conn, now)
         seed_rest_options(conn)

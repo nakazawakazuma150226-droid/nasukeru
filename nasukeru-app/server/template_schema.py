@@ -559,9 +559,15 @@ def validate_copy_line(line, field):
     if isinstance(line, str):
         return
     require_object(line, field)
-    reject_unknown_keys(line, ("text", "splitLinesFrom", "omitIfAllBlank", "showIf"), field)
-    require_keys(line, ("text",), field)
-    require_string(line["text"], f"{field}.text")
+    reject_unknown_keys(line, ("text", "segments", "prefix", "separator", "splitLinesFrom", "omitIfAllBlank", "showIf"), field)
+    if "segments" in line:
+        validate_copy_line_segments(line["segments"], f"{field}.segments")
+        require_optional_string(line, "prefix", field)
+        require_optional_string(line, "separator", field)
+    else:
+        require_keys(line, ("text",), field)
+    if "text" in line:
+        require_string(line["text"], f"{field}.text")
     if "showIf" in line:
         require_object(line["showIf"], f"{field}.showIf")
     if "splitLinesFrom" in line:
@@ -579,6 +585,20 @@ def validate_copy_line(line, field):
                 )
 
 
+def validate_copy_line_segments(segments, field):
+    if not isinstance(segments, list) or not segments:
+        raise SchemaValidationError(f"{field} must be a non-empty array")
+    for index, segment in enumerate(segments):
+        segment_field = f"{field}[{index}]"
+        require_object(segment, segment_field)
+        reject_unknown_keys(segment, ("ref", "label", "suffix"), segment_field)
+        ref = require_text(segment.get("ref"), f"{segment_field}.ref")
+        if not COPY_REF_PATTERN.fullmatch(ref):
+            raise SchemaValidationError(f"{segment_field}.ref must match section.field")
+        require_optional_string(segment, "label", segment_field)
+        require_optional_string(segment, "suffix", segment_field)
+
+
 def normalize_copy_format(copy_format):
     validate_copy_format(copy_format)
     if copy_format is None:
@@ -588,7 +608,12 @@ def normalize_copy_format(copy_format):
         if isinstance(line, str):
             normalized_lines.append(line)
         else:
-            normalized_lines.append(ordered_with_known_keys(line, ("text", "splitLinesFrom", "omitIfAllBlank", "showIf")))
+            normalized_lines.append(
+                ordered_with_known_keys(
+                    line,
+                    ("text", "segments", "prefix", "separator", "splitLinesFrom", "omitIfAllBlank", "showIf"),
+                )
+            )
     return ordered_with_known_keys({**copy_format, "lines": normalized_lines}, ("format", "lines"))
 
 
@@ -613,6 +638,8 @@ def iter_copy_line_output_refs(line):
     for match in COPY_PLACEHOLDER_PATTERN.finditer(text):
         yield f"{match.group(1)}.{match.group(2)}"
     if isinstance(line, dict):
+        for segment in line.get("segments", []):
+            yield segment["ref"]
         split_ref = line.get("splitLinesFrom")
         if split_ref:
             yield split_ref

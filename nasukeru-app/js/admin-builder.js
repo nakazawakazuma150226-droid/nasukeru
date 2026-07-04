@@ -135,6 +135,9 @@
     (copyFormat.lines || []).forEach(function(line) {
       var lineObj = typeof line === "string" ? { text: line } : line;
       placeholderRefs(lineObj.text || "").forEach(function(ref) { refs[ref] = true; });
+      (lineObj.segments || []).forEach(function(segment) {
+        if (segment.ref) refs[segment.ref] = true;
+      });
       if (lineObj.splitLinesFrom) refs[lineObj.splitLinesFrom] = true;
     });
     return refs;
@@ -411,6 +414,7 @@
     var wrap = el("div", "admin-builder-card", null);
     wrap.dataset.builderCopyLine = "1";
     var lineObj = typeof line === "string" ? { text: line } : (line || { text: "" });
+    wrap.originalCopyLine = cloneValue(lineObj);
     var header = el("div", "admin-builder-card-head");
     header.appendChild(el("strong", "", "Copy Line"));
     var remove = el("button", "btn bg admin-row-btn", "削除");
@@ -513,6 +517,17 @@
         return item.trim();
       }).filter(Boolean);
       var split = lineNode.querySelector(".builder-copy-split").value;
+      if (
+        lineNode.originalCopyLine
+        && Array.isArray(lineNode.originalCopyLine.segments)
+        && !text
+        && !showIf
+        && !omit.length
+        && !split
+      ) {
+        lines.push(cloneValue(lineNode.originalCopyLine));
+        return;
+      }
       if (!showIf && !omit.length && !split) {
         lines.push(text);
         return;

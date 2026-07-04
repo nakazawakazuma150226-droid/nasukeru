@@ -33,6 +33,40 @@ test("omits object line when all refs are blank", () => {
   assert.equal(output, "Title\nNIHSS: 2");
 });
 
+test("renders only filled dynamic segments", () => {
+  const copyFormat = {
+    format: "text-v1",
+    lines: [
+      {
+        segments: [
+          { ref: "vitals.jcs", label: "JCS" },
+          { ref: "vitals.t", label: "T", suffix: "℃" },
+          { ref: "vitals.hr", label: "HR" },
+          { ref: "vitals.spo2", label: "SpO₂", suffix: "%" },
+        ],
+        separator: "　",
+      },
+      {
+        prefix: "MMT：",
+        segments: [
+          { ref: "mmt.ru", label: "右上肢" },
+          { ref: "mmt.rl", label: "右下肢" },
+        ],
+        separator: "、",
+      },
+    ],
+  };
+  const output = renderer.renderGenericTemplateCopyText(copyFormat, {
+    "vitals.jcs": "Ⅲ-300",
+    "vitals.t": "30",
+    "vitals.hr": "",
+    "vitals.spo2": "",
+    "mmt.ru": "",
+    "mmt.rl": "",
+  });
+  assert.equal(output, "JCSⅢ-300　T30℃");
+});
+
 test("splits textarea value into non-empty lines", () => {
   const copyFormat = {
     format: "text-v1",

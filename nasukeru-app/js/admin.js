@@ -107,6 +107,13 @@ function isGenericSchemaFormat(format) {
   return format === "generic-v1" || format === "generic-v2";
 }
 
+function schemaFormatLabel(format) {
+  if (format === "generic-v1") return "通常テンプレート（条件なし）";
+  if (format === "generic-v2") return "条件付きテンプレート";
+  if (format === "stroke-v1") return "旧形式（履歴用）";
+  return format || "-";
+}
+
 function defaultGenericCopyFormat() {
   return {
     format: "text-v1",
@@ -324,7 +331,7 @@ function renderAdminRows() {
     var category = document.createElement("td");
     category.dataset.label = "分類";
     category.textContent = item.category;
-    if (item.schema_format) category.textContent += " / " + item.schema_format;
+    if (item.schema_format) category.textContent += " / " + schemaFormatLabel(item.schema_format);
 
     var version = document.createElement("td");
     version.dataset.label = "版";
@@ -373,9 +380,9 @@ function openCreateModal() {
   openModal("新規追加", "");
   var form = document.createElement("form");
   form.className = "admin-form";
-  var schemaFormatField = formSelect("schema形式", "schema_format", DEFAULT_NEW_SCHEMA_FORMAT, [
-    { value: "generic-v1", label: "generic-v1" },
-    { value: "generic-v2", label: "generic-v2" }
+  var schemaFormatField = formSelect("テンプレート形式", "schema_format", DEFAULT_NEW_SCHEMA_FORMAT, [
+    { value: "generic-v1", label: "通常テンプレート（条件なし）" },
+    { value: "generic-v2", label: "条件付きテンプレート（表示・必須・出力条件あり）" }
   ]);
   form.appendChild(schemaFormatField);
   appendGenericEditor(form, defaultGenericSchema(), defaultGenericCopyFormat(), function(){ return collectText(form, "schema_format"); });
@@ -566,7 +573,12 @@ async function openEditModal(item) {
     form.appendChild(formField("表示名", "label", item.label, { readonly: true }));
     form.appendChild(formField("正式名称", "full", item.full, { readonly: true }));
     form.appendChild(formField("分類", "category", item.category, { readonly: true }));
-    form.appendChild(formField("schema形式", "schema_format", detail.schema_format || "stroke-v1", { readonly: true }));
+    form.appendChild(formField("テンプレート形式", "schema_format_label", schemaFormatLabel(detail.schema_format || "stroke-v1"), { readonly: true }));
+    var schemaFormatHidden = document.createElement("input");
+    schemaFormatHidden.type = "hidden";
+    schemaFormatHidden.name = "schema_format";
+    schemaFormatHidden.value = detail.schema_format || "stroke-v1";
+    form.appendChild(schemaFormatHidden);
     if (isGeneric) {
       appendWarnings(form, detail.warnings);
       appendGenericEditor(form, schema, detail.copy_format, function(){ return collectText(form, "schema_format"); });

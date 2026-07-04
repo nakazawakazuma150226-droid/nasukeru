@@ -388,7 +388,9 @@ APIの返却形は既存画面に合わせて維持しています。
   - `id` は `^[a-z0-9_-]{1,32}$`
 - `POST /api/templates/<id>/versions`
   - 既存テンプレートを上書きせず、新しいバージョンとして編集内容を追加する
-  - 必須: `schema`, `change_summary`, `change_reason`
+  - 必須: `base_version_id`, `schema`, `change_summary`, `change_reason`
+  - `base_version_id` は管理画面で取得した `current_version_id` を送る
+  - 保存時点の `current_version_id` と一致しない場合は、競合更新として `409` を返す
 - `POST /api/templates/<id>/delete`
   - 物理削除せず `is_active = 0` にする
   - 必須: `reason`

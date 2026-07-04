@@ -512,6 +512,7 @@ async function openEditModal(item) {
       }
       try {
         await createTemplateVersion(item.id, {
+          base_version_id: detail.current_version_id,
           schema: nextSchema,
           copy_format: nextCopyFormat,
           change_summary: summary,

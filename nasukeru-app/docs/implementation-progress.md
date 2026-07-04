@@ -75,3 +75,38 @@ Gate:
 Next:
 
 - Phase 2 Optimistic Template Version Concurrency
+
+## Phase 2: Optimistic Template Version Concurrency
+
+Status: PASS
+
+Base: `0c65904`
+
+Implemented:
+
+- `POST /api/templates/<id>/versions` に `base_version_id` 必須化を追加
+- 保存時点の `current_version_id` と `base_version_id` が一致しない場合は `409` を返す
+- 管理画面のschema編集保存時に、詳細取得時の `current_version_id` を送信
+- スモークテストに `base_version_id` 欠落400と古い `base_version_id` 409を追加
+- README / handoff に競合更新防止のAPI契約を追記
+
+Tests:
+
+- Python compile PASS
+- JS syntax check PASS
+- copy renderer unit test PASS
+- smoke test PASS
+
+Review:
+
+- Critical: 0
+- High: 0
+- Medium: 0
+
+Gate:
+
+- PASS
+
+Next:
+
+- Phase 3 Option Value / Label Separation

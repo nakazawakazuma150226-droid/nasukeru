@@ -167,6 +167,13 @@ def require_reason(payload, field="reason"):
     return value.strip()
 
 
+def require_positive_int(payload, field):
+    value = payload.get(field)
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise TemplateValidationError(f"{field} must be a positive integer")
+    return value
+
+
 def allowed_local_origin(value):
     if not value:
         return False
@@ -510,6 +517,7 @@ def create_template():
 @app.post("/api/templates/<template_id>/versions")
 def create_template_version(template_id):
     payload = require_json_body()
+    base_version_id = require_positive_int(payload, "base_version_id")
     try:
         validated = validate_template_payload(
             payload,
@@ -530,6 +538,8 @@ def create_template_version(template_id):
             return jsonify({"ok": False, "error": "template not found"}), 404
         if not template["is_active"]:
             raise TemplateStateError("deleted template cannot be edited")
+        if template["current_version_id"] != base_version_id:
+            raise TemplateStateError("template has been updated; reload before saving")
 
         version_number = conn.execute(
             """

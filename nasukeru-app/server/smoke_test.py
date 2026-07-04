@@ -444,11 +444,16 @@ def run_write_tests(failures):
                 "POST /api/templates stroke-v1 non-empty initial values",
                 failures,
             )
-            assert_status(client.post("/api/templates", json=create_payload, headers=LOCAL_HEADERS), 201, "POST /api/templates", failures)
+            create_response = client.post("/api/templates", json=create_payload, headers=LOCAL_HEADERS)
+            assert_status(create_response, 201, "POST /api/templates", failures)
             assert_status(client.post("/api/templates", json=create_payload, headers=LOCAL_HEADERS), 409, "POST /api/templates duplicate", failures)
             assert_status(client.get("/api/templates/test_template"), 200, "GET /api/templates/test_template", failures)
+            created_detail = client.get("/api/admin/templates/test_template")
+            assert_status(created_detail, 200, "GET /api/admin/templates/test_template before update", failures)
+            base_version_id = (created_detail.get_json() or {}).get("current_version_id")
 
             update_payload = {
+                "base_version_id": base_version_id,
                 "schema": BASE_SCHEMA,
                 "change_summary": "smoke update",
                 "change_reason": "smoke edit",
@@ -457,7 +462,18 @@ def run_write_tests(failures):
                 **update_payload,
                 "schema": NON_EMPTY_BASE_SCHEMA,
             }
-            missing_reason = {"schema": BASE_SCHEMA, "change_summary": "smoke update"}
+            missing_base_version = {
+                "schema": BASE_SCHEMA,
+                "change_summary": "smoke update",
+                "change_reason": "smoke edit",
+            }
+            assert_status(
+                client.post("/api/templates/test_template/versions", json=missing_base_version, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates/test_template/versions missing base_version_id",
+                failures,
+            )
+            missing_reason = {"base_version_id": base_version_id, "schema": BASE_SCHEMA, "change_summary": "smoke update"}
             assert_status(
                 client.post("/api/templates/test_template/versions", json=missing_reason, headers=LOCAL_HEADERS),
                 400,
@@ -476,6 +492,23 @@ def run_write_tests(failures):
                 "POST /api/templates/test_template/versions",
                 failures,
             )
+            updated_detail = client.get("/api/admin/templates/test_template")
+            assert_status(updated_detail, 200, "GET /api/admin/templates/test_template after update", failures)
+            current_version_id = (updated_detail.get_json() or {}).get("current_version_id")
+            stale_update_payload = {
+                **update_payload,
+                "change_reason": "smoke stale edit",
+            }
+            assert_status(
+                client.post("/api/templates/test_template/versions", json=stale_update_payload, headers=LOCAL_HEADERS),
+                409,
+                "POST /api/templates/test_template/versions stale base_version_id",
+                failures,
+            )
+            latest_update_payload = {
+                **update_payload,
+                "base_version_id": current_version_id,
+            }
             assert_status(
                 client.post("/api/templates/test_template/delete", json={"reason": "smoke delete"}, headers=LOCAL_HEADERS),
                 200,
@@ -489,7 +522,7 @@ def run_write_tests(failures):
                 failures,
             )
             assert_status(
-                client.post("/api/templates/test_template/versions", json=update_payload, headers=LOCAL_HEADERS),
+                client.post("/api/templates/test_template/versions", json=latest_update_payload, headers=LOCAL_HEADERS),
                 409,
                 "POST /api/templates/test_template/versions while deleted",
                 failures,

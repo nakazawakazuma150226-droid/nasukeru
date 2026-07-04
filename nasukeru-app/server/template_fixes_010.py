@@ -5,10 +5,10 @@ from pathlib import Path
 
 from init_db import (
     DEFAULT_DB_PATH,
-    JCS_OPTIONS,
     NEURO_COMMON_TEMPLATE,
-    REST_OPTIONS,
     STROKE_TYPES,
+    build_generic_stroke_schema,
+    build_neuro_common_schema,
     connect,
     generic_field,
 )
@@ -63,6 +63,15 @@ def contains(field, value):
     return {"op": "contains", "field": field, "value": value}
 
 
+def section_by_id(schema, section_id):
+    return next(section for section in schema["sections"] if section["id"] == section_id)
+
+
+def field_by_id(schema, section_id, field_id):
+    section = section_by_id(schema, section_id)
+    return next(field for field in section["fields"] if field["id"] == field_id)
+
+
 def conditional_field(field_id, label, field_type, condition, **extra):
     return generic_field(
         field_id,
@@ -75,68 +84,9 @@ def conditional_field(field_id, label, field_type, condition, **extra):
 
 
 def build_corrected_stroke_schema(template):
-    sections = [
-        {
-            "id": "vitals",
-            "label": "バイタル",
-            "displayOrder": 1,
-            "fields": [
-                generic_field("jcs", "JCS", "select", options=JCS_OPTIONS, requiredWarning=True),
-                generic_field("t", "T", unit="℃", requiredWarning=True),
-                generic_field("bp", "BP", unit="mmHg", requiredWarning=True),
-                generic_field("hr", "HR", requiredWarning=True),
-                generic_field("spo2", "SpO₂", unit="%", requiredWarning=True),
-            ],
-        },
-        {
-            "id": "symptoms",
-            "label": "症状",
-            "displayOrder": 2,
-            "fields": [
-                generic_field("headache", "頭痛"),
-                generic_field("dizzy", "めまい"),
-                generic_field("nausea", "嘔気"),
-            ],
-        },
-        {
-            "id": "neuro",
-            "label": "神経所見",
-            "displayOrder": 3,
-            "fields": [
-                generic_field("pupil", "瞳孔（左右）", placeholder="例: 2.5/2.5mm", requiredWarning=True),
-                generic_field("light", "対光反射", placeholder="例: あり", requiredWarning=True),
-                generic_field("eye", "眼球位置", placeholder="例: 正中位"),
-                generic_field("barre", "バレー徴候"),
-                generic_field("mingazzini", "ミンガッチー徴候"),
-                generic_field("nihss", "NIHSS（別紙記録参照）", requiredWarning=True),
-                generic_field("other", "その他神経症状", "textarea"),
-            ],
-        },
-        {
-            "id": "mmt",
-            "label": "MMT",
-            "displayOrder": 4,
-            "fields": [
-                generic_field("ru", "右上肢", requiredWarning=True),
-                generic_field("rl", "右下肢", requiredWarning=True),
-                generic_field("lu", "左上肢", requiredWarning=True),
-                generic_field("ll", "左下肢", requiredWarning=True),
-            ],
-        },
-        {
-            "id": "stroke_findings",
-            "label": f"{template['label']} 個別観察項目",
-            "displayOrder": 5,
-            "fields": STROKE_EXTRA_FIELDS_010[template["id"]],
-        },
-        {
-            "id": "rest",
-            "label": "安静度",
-            "displayOrder": 6,
-            "fields": [generic_field("level", "安静度", "select", options=REST_OPTIONS, requiredWarning=True)],
-        },
-    ]
-    return normalize_schema({"schemaFormat": "generic-v1", "sections": sections})
+    schema = json.loads(json.dumps(build_generic_stroke_schema(template), ensure_ascii=False))
+    section_by_id(schema, "stroke_findings")["fields"] = STROKE_EXTRA_FIELDS_010[template["id"]]
+    return normalize_schema(schema)
 
 
 def build_corrected_stroke_copy_format(template):
@@ -196,6 +146,9 @@ def build_corrected_stroke_copy_format(template):
 
 
 def build_corrected_neuro_common_schema():
+    schema = json.loads(json.dumps(build_neuro_common_schema(), ensure_ascii=False))
+    schema["schemaFormat"] = "generic-v2"
+
     oxygen_condition = eq("vitals.oxygen_use", "O2使用")
     ecg_other_condition = eq("vitals.ecg_rhythm", "その他")
     barre_positive = eq("motor.barre_status", "陽性")
@@ -205,75 +158,56 @@ def build_corrected_neuro_common_schema():
     nicardipine_condition = contains("treatment.antihypertensive", "ニカルジピン")
     antihypertensive_other_condition = contains("treatment.antihypertensive", "その他")
 
-    sections = [
-        {"id": "consciousness", "label": "意識レベル", "displayOrder": 1, "fields": [
-            generic_field("jcs", "JCS", "select", options=JCS_OPTIONS, requiredWarning=True),
-        ]},
-        {"id": "vitals", "label": "バイタルサイン", "displayOrder": 2, "fields": [
-            generic_field("t", "体温", "number", unit="℃", step=0.1, requiredWarning=True),
-            generic_field("bp", "血圧", requiredWarning=True, placeholder="例: 120/70"),
-            generic_field("hr", "心拍数", "number", unit="回/分", min=0, step=1, requiredWarning=True),
-            generic_field("ecg_rhythm", "心電図リズム", "select", options=["SR", "Af", "PAC", "PVC", "その他"]),
-            conditional_field("ecg_rhythm_other", "その他の心電図リズム", "text", ecg_other_condition, placeholder="例: VT"),
-            generic_field("spo2", "SpO₂", "number", unit="%", min=0, max=100, step=1, requiredWarning=True),
-            generic_field("oxygen_use", "酸素使用", "select", options=["RA", "O2使用"]),
-            conditional_field("oxygen_flow", "酸素流量", "number", oxygen_condition, unit="L/分", min=0, step=0.5),
-        ]},
-        {"id": "eye", "label": "瞳孔・眼球所見", "displayOrder": 3, "fields": [
-            generic_field("pupil_right", "右瞳孔径", "number", unit="mm", min=0, step=0.5, requiredWarning=True),
-            generic_field("pupil_left", "左瞳孔径", "number", unit="mm", min=0, step=0.5, requiredWarning=True),
-            generic_field("light", "対光反射", "select", options=["あり", "鈍い", "なし"], requiredWarning=True),
-            generic_field("anisocoria", "瞳孔不同", "select", options=["なし", "あり"]),
-            generic_field("eye_position", "眼位", "select", options=["正中", "右共同偏視", "左共同偏視"]),
-            generic_field("nystagmus", "眼振", "select", options=["なし", "あり"]),
-            generic_field("diplopia", "複視", "select", options=["なし", "あり"]),
-            generic_field("ptosis", "眼瞼下垂", "select", options=["なし", "あり"]),
-        ]},
-        {"id": "motor", "label": "運動機能", "displayOrder": 4, "fields": [
-            generic_field("mmt_ru", "MMT 右上肢", requiredWarning=True, placeholder="例: 5/5"),
-            generic_field("mmt_rl", "MMT 右下肢", requiredWarning=True, placeholder="例: 5/5"),
-            generic_field("mmt_lu", "MMT 左上肢", requiredWarning=True, placeholder="例: 5/5"),
-            generic_field("mmt_ll", "MMT 左下肢", requiredWarning=True, placeholder="例: 5/5"),
-            generic_field("barre_status", "バレー徴候", "select", options=["陰性", "陽性"]),
-            conditional_field("barre_side", "バレー左右", "multi_select", barre_positive, options=["右", "左"]),
-            generic_field("barre_angle", "バレー保持角度", "number", unit="度", min=0, max=90, step=1, visibleIf=barre_positive),
-            generic_field("barre_detail", "バレー詳細", "multi_select", options=["軽度下垂", "下垂", "保持困難", "挙上不可"], visibleIf=barre_positive),
-            generic_field("mingazzini_status", "ミンガッチーニ徴候", "select", options=["陰性", "陽性"]),
-            conditional_field("mingazzini_side", "ミンガッチーニ左右", "multi_select", mingazzini_positive, options=["右", "左"]),
-            generic_field("mingazzini_detail", "ミンガッチーニ詳細", "multi_select", options=["軽度下垂", "下垂", "保持困難", "肢位不可"], visibleIf=mingazzini_positive),
-            generic_field("mingazzini_note", "ミンガッチーニ備考", visibleIf=mingazzini_positive),
-        ]},
-        {"id": "nihss", "label": "NIHSS", "displayOrder": 5, "fields": [
-            generic_field("total", "合計点数", "number", min=0, step=1, requiredWarning=True, helpText="詳細採点は別紙記録参照"),
-        ]},
-        {"id": "higher", "label": "高次脳機能", "displayOrder": 6, "fields": [
-            generic_field("findings", "高次脳機能所見", "multi_select", options=["構音障害", "失語", "半側空間無視", "病態失認"]),
-        ]},
-        {"id": "icp", "label": "頭蓋内圧亢進症状", "displayOrder": 7, "fields": [
-            generic_field("symptoms", "症状", "multi_select", options=["頭痛", "嘔気", "嘔吐", "痙攣"]),
-        ]},
-        {"id": "swallow", "label": "嚥下", "displayOrder": 8, "fields": [
-            generic_field("meal", "食事・飲水", "multi_select", options=["禁食", "飲水可", "とろみ水", "嚥下食", "常食"]),
-            conditional_field("thickened_water_level", "とろみの程度", "select", thickened_condition, options=THICKENED_WATER_LEVELS),
-            conditional_field("dysphagia_diet_level", "嚥下食レベル", "select", dysphagia_diet_condition, options=DYSPHAGIA_DIET_LEVELS),
-            generic_field("choking", "むせ", "select", options=["なし", "あり"]),
-        ]},
-        {"id": "activity", "label": "安静度・ADL", "displayOrder": 9, "fields": [
-            generic_field("rest", "安静度", "select", options=REST_OPTIONS, requiredWarning=True),
-            generic_field("adl", "ADL", "select", options=["自立", "見守り", "一部介助", "全介助"]),
-        ]},
-        {"id": "elimination", "label": "排泄", "displayOrder": 10, "fields": [
-            generic_field("urination", "排尿", "select", options=["自立", "尿器", "失禁", "バルーン"]),
-            generic_field("defecation", "排便", "select", options=["自立", "失禁", "オムツ"]),
-        ]},
-        {"id": "treatment", "label": "治療", "displayOrder": 11, "fields": [
-            generic_field("antihypertensive", "降圧薬", "multi_select", options=["ニカルジピン", "アムロジピン", "その他"]),
-            conditional_field("nicardipine_rate", "ニカルジピン速度", "number", nicardipine_condition, unit="ml/h", min=0, step=0.1),
-            conditional_field("antihypertensive_other", "その他の降圧薬", "text", antihypertensive_other_condition, placeholder="薬剤名を入力"),
-            generic_field("other", "治療メモ", "textarea"),
-        ]},
+    vitals = section_by_id(schema, "vitals")["fields"]
+    ecg_index = next(index for index, field in enumerate(vitals) if field["id"] == "ecg_rhythm")
+    vitals.insert(
+        ecg_index + 1,
+        conditional_field("ecg_rhythm_other", "その他の心電図リズム", "text", ecg_other_condition, placeholder="例: VT"),
+    )
+    oxygen_flow = field_by_id(schema, "vitals", "oxygen_flow")
+    oxygen_flow["unit"] = "L/分"
+    oxygen_flow["visibleIf"] = oxygen_condition
+    oxygen_flow["requiredIf"] = oxygen_condition
+
+    barre_side = field_by_id(schema, "motor", "barre_side")
+    barre_side["visibleIf"] = barre_positive
+    barre_side["requiredIf"] = barre_positive
+    field_by_id(schema, "motor", "barre_angle")["visibleIf"] = barre_positive
+    field_by_id(schema, "motor", "barre_detail")["visibleIf"] = barre_positive
+
+    mingazzini_side = field_by_id(schema, "motor", "mingazzini_side")
+    mingazzini_side["visibleIf"] = mingazzini_positive
+    mingazzini_side["requiredIf"] = mingazzini_positive
+    field_by_id(schema, "motor", "mingazzini_detail")["visibleIf"] = mingazzini_positive
+    field_by_id(schema, "motor", "mingazzini_note")["visibleIf"] = mingazzini_positive
+
+    swallow = section_by_id(schema, "swallow")["fields"]
+    meal_index = next(index for index, field in enumerate(swallow) if field["id"] == "meal")
+    swallow[meal_index + 1:meal_index + 1] = [
+        conditional_field(
+            "thickened_water_level", "とろみの程度", "select", thickened_condition,
+            options=THICKENED_WATER_LEVELS,
+        ),
+        conditional_field(
+            "dysphagia_diet_level", "嚥下食レベル", "select", dysphagia_diet_condition,
+            options=DYSPHAGIA_DIET_LEVELS,
+        ),
     ]
-    return normalize_schema({"schemaFormat": "generic-v2", "sections": sections})
+
+    nicardipine_rate = field_by_id(schema, "treatment", "nicardipine_rate")
+    nicardipine_rate["visibleIf"] = nicardipine_condition
+    nicardipine_rate["requiredIf"] = nicardipine_condition
+    treatment = section_by_id(schema, "treatment")["fields"]
+    rate_index = next(index for index, field in enumerate(treatment) if field["id"] == "nicardipine_rate")
+    treatment.insert(
+        rate_index + 1,
+        conditional_field(
+            "antihypertensive_other", "その他の降圧薬", "text",
+            antihypertensive_other_condition, placeholder="薬剤名を入力",
+        ),
+    )
+
+    return normalize_schema(schema)
 
 
 def build_corrected_neuro_common_copy_format():

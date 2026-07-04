@@ -109,11 +109,23 @@ STROKE_TYPES = [
 ]
 
 REST_OPTIONS = ["ベッド上安静", "ベッド上フリー", "病棟内フリー", "院内フリー", "リハビリに準ずる"]
-QUICK_TEMPLATES = [{"label": "脳梗塞", "sub": "5パターン専用テンプレ", "action": "stroke"}]
+JCS_OPTIONS = ["0", "I-1", "I-2", "I-3", "II-10", "II-20", "II-30", "III-100", "III-200", "III-300"]
+NEURO_COMMON_TEMPLATE = {
+    "id": "neuro_common",
+    "label": "脳卒中共通",
+    "full": "脳神経共通テンプレート",
+    "category": "neuro_common",
+}
+QUICK_TEMPLATES = [
+    {"label": "脳梗塞", "sub": "5パターン専用テンプレ", "action": "stroke"},
+    {"label": "脳卒中共通", "sub": "脳神経共通テンプレ", "action": "neuro_common"},
+]
 SEARCH_KEYWORDS = [
     {"keyword": "脳梗塞", "template_action": "stroke"},
     {"keyword": "脳卒中", "template_action": "stroke"},
     {"keyword": "stroke", "template_action": "stroke"},
+    {"keyword": "脳卒中共通", "template_action": "neuro_common"},
+    {"keyword": "脳神経共通テンプレート", "template_action": "neuro_common"},
 ]
 
 STROKE_EXTRA_FIELDS = {
@@ -286,6 +298,160 @@ def build_generic_stroke_copy_format(template):
     )
 
 
+def build_neuro_common_schema():
+    sections = [
+        {
+            "id": "consciousness",
+            "label": "意識レベル",
+            "displayOrder": 1,
+            "fields": [
+                generic_field("jcs", "JCS", "select", options=JCS_OPTIONS, requiredWarning=True),
+            ],
+        },
+        {
+            "id": "vitals",
+            "label": "バイタルサイン",
+            "displayOrder": 2,
+            "fields": [
+                generic_field("t", "体温", "number", unit="℃", step=0.1, requiredWarning=True),
+                generic_field("bp", "血圧", requiredWarning=True, placeholder="例: 120/70"),
+                generic_field("hr", "心拍数", "number", unit="回/分", min=0, step=1, requiredWarning=True),
+                generic_field("ecg_rhythm", "心電図リズム", "select", options=["SR", "Af", "PAC", "PVC", "その他"]),
+                generic_field("spo2", "SpO₂", "number", unit="%", min=0, max=100, step=1, requiredWarning=True),
+                generic_field("oxygen_use", "酸素使用", "select", options=["RA", "O2使用"]),
+                generic_field("oxygen_flow", "酸素流量", "number", unit="L", min=0, step=0.5),
+            ],
+        },
+        {
+            "id": "eye",
+            "label": "瞳孔・眼球所見",
+            "displayOrder": 3,
+            "fields": [
+                generic_field("pupil_right", "右瞳孔径", "number", unit="mm", min=0, step=0.5, requiredWarning=True),
+                generic_field("pupil_left", "左瞳孔径", "number", unit="mm", min=0, step=0.5, requiredWarning=True),
+                generic_field("light", "対光反射", "select", options=["あり", "鈍い", "なし"], requiredWarning=True),
+                generic_field("anisocoria", "瞳孔不同", "select", options=["なし", "あり"]),
+                generic_field("eye_position", "眼位", "select", options=["正中", "右共同偏視", "左共同偏視"]),
+                generic_field("nystagmus", "眼振", "select", options=["なし", "あり"]),
+                generic_field("diplopia", "複視", "select", options=["なし", "あり"]),
+                generic_field("ptosis", "眼瞼下垂", "select", options=["なし", "あり"]),
+            ],
+        },
+        {
+            "id": "motor",
+            "label": "運動機能",
+            "displayOrder": 4,
+            "fields": [
+                generic_field("mmt_ru", "MMT 右上肢", requiredWarning=True, placeholder="例: 5/5"),
+                generic_field("mmt_rl", "MMT 右下肢", requiredWarning=True, placeholder="例: 5/5"),
+                generic_field("mmt_lu", "MMT 左上肢", requiredWarning=True, placeholder="例: 5/5"),
+                generic_field("mmt_ll", "MMT 左下肢", requiredWarning=True, placeholder="例: 5/5"),
+                generic_field("barre_status", "バレー徴候", "select", options=["陰性", "陽性"]),
+                generic_field("barre_side", "バレー左右", "multi_select", options=["右", "左"]),
+                generic_field("barre_angle", "バレー保持角度", "number", unit="度", min=0, max=90, step=1),
+                generic_field("barre_detail", "バレー詳細", "multi_select", options=["軽度下垂", "下垂", "保持困難", "挙上不可"]),
+                generic_field("mingazzini_status", "ミンガッチーニ徴候", "select", options=["陰性", "陽性"]),
+                generic_field("mingazzini_side", "ミンガッチーニ左右", "multi_select", options=["右", "左"]),
+                generic_field("mingazzini_detail", "ミンガッチーニ詳細", "multi_select", options=["軽度下垂", "下垂", "保持困難", "肢位不可"]),
+                generic_field("mingazzini_note", "ミンガッチーニ備考"),
+            ],
+        },
+        {
+            "id": "nihss",
+            "label": "NIHSS",
+            "displayOrder": 5,
+            "fields": [
+                generic_field("total", "合計点数", "number", min=0, step=1, requiredWarning=True, helpText="詳細採点は別紙記録参照"),
+            ],
+        },
+        {
+            "id": "higher",
+            "label": "高次脳機能",
+            "displayOrder": 6,
+            "fields": [
+                generic_field("findings", "高次脳機能所見", "multi_select", options=["構音障害", "失語", "半側空間無視", "病態失認"]),
+            ],
+        },
+        {
+            "id": "icp",
+            "label": "頭蓋内圧亢進症状",
+            "displayOrder": 7,
+            "fields": [
+                generic_field("symptoms", "症状", "multi_select", options=["頭痛", "嘔気", "嘔吐", "痙攣"]),
+            ],
+        },
+        {
+            "id": "swallow",
+            "label": "嚥下",
+            "displayOrder": 8,
+            "fields": [
+                generic_field("meal", "食事・飲水", "multi_select", options=["禁食", "飲水可", "とろみ水", "嚥下食", "常食"]),
+                generic_field("choking", "むせ", "select", options=["なし", "あり"]),
+            ],
+        },
+        {
+            "id": "activity",
+            "label": "安静度・ADL",
+            "displayOrder": 9,
+            "fields": [
+                generic_field("rest", "安静度", "select", options=REST_OPTIONS, requiredWarning=True),
+                generic_field("adl", "ADL", "select", options=["自立", "見守り", "一部介助", "全介助"]),
+            ],
+        },
+        {
+            "id": "elimination",
+            "label": "排泄",
+            "displayOrder": 10,
+            "fields": [
+                generic_field("urination", "排尿", "select", options=["自立", "尿器", "失禁", "バルーン"]),
+                generic_field("defecation", "排便", "select", options=["自立", "失禁", "オムツ"]),
+            ],
+        },
+        {
+            "id": "treatment",
+            "label": "治療",
+            "displayOrder": 11,
+            "fields": [
+                generic_field("antihypertensive", "降圧薬", "multi_select", options=["ニカルジピン", "アムロジピン", "その他"]),
+                generic_field("nicardipine_rate", "ニカルジピン速度", "number", unit="ml/h", min=0, step=0.1),
+                generic_field("other", "治療メモ", "textarea"),
+            ],
+        },
+    ]
+    return normalize_schema({"schemaFormat": "generic-v1", "sections": sections})
+
+
+def build_neuro_common_copy_format():
+    return normalize_copy_format(
+        {
+            "format": "text-v1",
+            "lines": [
+                NEURO_COMMON_TEMPLATE["full"],
+                "",
+                "JCS{{consciousness.jcs}}、T{{vitals.t}}℃、BP{{vitals.bp}}mmHg、HR{{vitals.hr}}回/分、SpO₂{{vitals.spo2}}%。",
+                "心電図リズム：{{vitals.ecg_rhythm}}。酸素：{{vitals.oxygen_use}} {{vitals.oxygen_flow}}L。",
+                "",
+                "瞳孔：右{{eye.pupil_right}}mm／左{{eye.pupil_left}}mm、対光反射：{{eye.light}}、瞳孔不同：{{eye.anisocoria}}、眼位：{{eye.eye_position}}。",
+                "眼振：{{eye.nystagmus}}、複視：{{eye.diplopia}}、眼瞼下垂：{{eye.ptosis}}。",
+                "",
+                "MMT：右上肢{{motor.mmt_ru}}、右下肢{{motor.mmt_rl}}、左上肢{{motor.mmt_lu}}、左下肢{{motor.mmt_ll}}。",
+                "バレー徴候：{{motor.barre_status}}、左右：{{motor.barre_side}}、保持角度：{{motor.barre_angle}}度、詳細：{{motor.barre_detail}}。",
+                "ミンガッチーニ徴候：{{motor.mingazzini_status}}、左右：{{motor.mingazzini_side}}、詳細：{{motor.mingazzini_detail}}。",
+                {"text": "ミンガッチーニ備考：{{motor.mingazzini_note}}", "omitIfAllBlank": ["motor.mingazzini_note"]},
+                "NIHSS：{{nihss.total}}点（別紙記録参照）。",
+                "",
+                "高次脳機能所見：{{higher.findings}}。",
+                "頭蓋内圧亢進症状：{{icp.symptoms}}。",
+                "嚥下：{{swallow.meal}}、むせ：{{swallow.choking}}。",
+                "安静度：{{activity.rest}}、ADL：{{activity.adl}}。",
+                "排尿：{{elimination.urination}}、排便：{{elimination.defecation}}。",
+                "降圧薬：{{treatment.antihypertensive}}、ニカルジピン速度：{{treatment.nicardipine_rate}}ml/h。",
+                {"text": "{{treatment.other}}", "splitLinesFrom": "treatment.other", "omitIfAllBlank": ["treatment.other"]},
+            ],
+        }
+    )
+
+
 def validate_seed_data():
     ids = set()
     for template in STROKE_TYPES:
@@ -295,6 +461,12 @@ def validate_seed_data():
         if template["id"] in ids:
             raise ValueError(f"duplicate template id: {template['id']}")
         ids.add(template["id"])
+    validate_template_id(NEURO_COMMON_TEMPLATE["id"])
+    build_neuro_common_schema()
+    build_neuro_common_copy_format()
+    if NEURO_COMMON_TEMPLATE["id"] in ids:
+        raise ValueError(f"duplicate template id: {NEURO_COMMON_TEMPLATE['id']}")
+    ids.add(NEURO_COMMON_TEMPLATE["id"])
     if len(set(REST_OPTIONS)) != len(REST_OPTIONS):
         raise ValueError("duplicate rest option")
     actions = [item["action"] for item in QUICK_TEMPLATES]
@@ -705,6 +877,82 @@ def migrate_stroke_copy_format_to_compat(conn, now):
     record_migration(conn, "005", "align stroke generic copy output with stroke v1", now)
 
 
+def migrate_add_neuro_common_template(conn, now):
+    if migration_applied(conn, "006"):
+        return
+
+    template = NEURO_COMMON_TEMPLATE
+    if exists(conn, "SELECT 1 FROM templates WHERE id = ?", (template["id"],)):
+        record_migration(conn, "006", "add neuro common template", now)
+        return
+
+    schema = build_neuro_common_schema()
+    copy_format = build_neuro_common_copy_format()
+    schema_json = json.dumps(schema, ensure_ascii=False)
+    copy_format_json = json.dumps(copy_format, ensure_ascii=False)
+    display_order = conn.execute("SELECT COALESCE(MAX(display_order), 0) + 1 FROM templates").fetchone()[0]
+
+    conn.execute(
+        """
+        INSERT INTO templates
+          (id, label, full, category, schema_json, is_active, display_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+        """,
+        (
+            template["id"],
+            template["label"],
+            template["full"],
+            template["category"],
+            schema_json,
+            display_order,
+            now,
+            now,
+        ),
+    )
+    cursor = conn.execute(
+        """
+        INSERT INTO template_versions
+          (template_id, version_number, schema_json, copy_format_json,
+           change_summary, change_reason, created_by, created_at, approved_by, approved_at)
+        VALUES (?, 1, ?, ?, ?, ?, 'system', ?, 'system', ?)
+        """,
+        (
+            template["id"],
+            schema_json,
+            copy_format_json,
+            "Add neuro common generic template",
+            "Add flat generic-v1 template for common stroke/neuro observations",
+            now,
+            now,
+        ),
+    )
+    version_id = cursor.lastrowid
+    conn.execute(
+        """
+        UPDATE templates
+        SET current_version_id = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (version_id, now, template["id"]),
+    )
+    conn.execute(
+        """
+        INSERT INTO template_audit_logs
+          (template_id, version_id, action, actor_name, acted_at, after_json, reason)
+        VALUES (?, ?, 'migrate', 'system', ?, ?, ?)
+        """,
+        (
+            template["id"],
+            version_id,
+            now,
+            json.dumps({"schema": schema, "copy_format": copy_format}, ensure_ascii=False),
+            "Add neuro common template as generic-v1",
+        ),
+    )
+
+    record_migration(conn, "006", "add neuro common template", now)
+
+
 def seed_rest_options(conn):
     for order, label in enumerate(REST_OPTIONS, start=1):
         if exists(conn, "SELECT 1 FROM rest_options WHERE label = ?", (label,)):
@@ -754,6 +1002,7 @@ def main():
         migrate_template_versions(conn, now)
         migrate_stroke_templates_to_generic(conn, now)
         migrate_stroke_copy_format_to_compat(conn, now)
+        migrate_add_neuro_common_template(conn, now)
         seed_rest_options(conn)
         seed_quick_templates(conn)
         seed_search_keywords(conn)

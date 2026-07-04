@@ -18,9 +18,12 @@ EXPECTED_GETS = [
     ("/api/admin/templates/mca", 200),
     ("/api/templates", 200),
     ("/api/templates/mca", 200),
+    ("/api/templates/neuro_common", 200),
     ("/api/templates/mca/versions", 200),
+    ("/api/templates/neuro_common/versions", 200),
     ("/api/templates/mca/versions/1", 200),
     ("/api/templates/mca/logs", 200),
+    ("/api/templates/neuro_common/logs", 200),
     ("/api/templates/unknown", 404),
     ("/api/templates/unknown/versions", 404),
     ("/api/templates/unknown/logs", 404),
@@ -347,6 +350,34 @@ def run_write_tests(failures):
                 mca_admin_response,
                 lambda item: item["current_version_number"] >= 3,
                 "GET /api/admin/templates/mca includes current version number",
+                failures,
+            )
+            neuro_common_response = client.get("/api/templates/neuro_common")
+            assert_status(neuro_common_response, 200, "GET /api/templates/neuro_common after migration", failures)
+            assert_json_contains(
+                neuro_common_response,
+                lambda item: item["schema_format"] == "generic-v1"
+                and item["label"] == "脳卒中共通"
+                and any(
+                    section["id"] == "motor"
+                    and any(field["id"] == "barre_side" and field["type"] == "multi_select" for field in section["fields"])
+                    and any(field["id"] == "barre_angle" and field["type"] == "number" for field in section["fields"])
+                    for section in item["schema"]["sections"]
+                )
+                and item["copy_format"]["format"] == "text-v1",
+                "GET /api/templates/neuro_common returns common generic schema",
+                failures,
+            )
+            assert_json_contains(
+                client.get("/api/quick-templates"),
+                lambda items: any(item["label"] == "脳卒中共通" and item["action"] == "neuro_common" for item in items),
+                "GET /api/quick-templates includes neuro common",
+                failures,
+            )
+            assert_json_contains(
+                client.get("/api/search-keywords"),
+                lambda items: "脳卒中共通" in items and "脳神経共通テンプレート" in items,
+                "GET /api/search-keywords includes neuro common keywords",
                 failures,
             )
 

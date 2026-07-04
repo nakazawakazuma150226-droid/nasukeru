@@ -241,7 +241,7 @@ def fetch_template_summary(conn, template_id):
           v.version_number AS current_version_number,
           t.created_at,
           t.updated_at,
-          COALESCE(v.schema_json, t.schema_json) AS schema_json
+          v.schema_json AS schema_json
         FROM templates t
         LEFT JOIN template_versions v ON v.id = t.current_version_id
         WHERE t.id = ?
@@ -266,7 +266,7 @@ def fetch_template_state(conn, template_id):
           v.version_number AS current_version_number,
           t.created_at,
           t.updated_at,
-          COALESCE(v.schema_json, t.schema_json) AS current_schema_json,
+          v.schema_json AS current_schema_json,
           v.copy_format_json AS current_copy_format_json
         FROM templates t
         LEFT JOIN template_versions v ON v.id = t.current_version_id
@@ -419,7 +419,7 @@ def get_templates():
               t.label,
               t.full,
               t.category,
-              COALESCE(v.schema_json, t.schema_json) AS schema_json,
+              v.schema_json AS schema_json,
               v.copy_format_json AS copy_format_json
             FROM templates t
             LEFT JOIN template_versions v ON v.id = t.current_version_id
@@ -447,7 +447,7 @@ def get_admin_templates():
               v.version_number AS current_version_number,
               t.created_at,
               t.updated_at,
-              COALESCE(v.schema_json, t.schema_json) AS schema_json
+              v.schema_json AS schema_json
             FROM templates t
             LEFT JOIN template_versions v ON v.id = t.current_version_id
             ORDER BY t.display_order, t.label
@@ -957,7 +957,7 @@ def get_template(template_id):
               t.label,
               t.full,
               t.category,
-              COALESCE(v.schema_json, t.schema_json) AS schema_json,
+              v.schema_json AS schema_json,
               v.copy_format_json AS copy_format_json
             FROM templates t
             LEFT JOIN template_versions v ON v.id = t.current_version_id
@@ -1144,7 +1144,7 @@ def get_template_group(group_id):
               t.label,
               t.full,
               t.category,
-              COALESCE(v.schema_json, t.schema_json) AS schema_json,
+              v.schema_json AS schema_json,
               v.copy_format_json AS copy_format_json
             FROM template_group_items gi
             JOIN templates t ON t.id = gi.template_id

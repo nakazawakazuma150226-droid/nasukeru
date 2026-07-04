@@ -166,6 +166,10 @@ SQLite DB
   - DSAなど新規項目を持つテンプレートに備えた可変schema設計
   - 既存脳梗塞テンプレートを最終的に可変テンプレートへ移行する方針
 
+- `docs/legacy-cleanup-inventory.md`
+  - 旧DBカラム、旧routing値、`stroke-v1` 互換コードの棚卸し
+  - Phase 9のRemoval Gateを管理する
+
 ## 可変テンプレートの段階導入
 
 現在は `stroke-v1` と `generic-v1` / `generic-v2` を併存させた上で、脳梗塞5テンプレートも `generic-v1` へ移行済みです。通常画面の表示とコピー出力もgeneric系を主経路にし、`stroke-v1` は旧バージョン・後方互換用として残します。
@@ -356,7 +360,7 @@ http://127.0.0.1:8000/api/health
 
 通常画面の `GET /api/templates` は、`templates.current_version_id` が指す `template_versions.schema_json` を優先して返します。
 
-互換用に `templates.schema_json` も残していますが、今後は `template_versions` を正とする想定です。
+互換用に `templates.schema_json` も残していますが、新規読み取りコードでは `template_versions` を正とします。
 
 ```text
 templates

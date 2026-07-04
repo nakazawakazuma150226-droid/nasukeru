@@ -105,16 +105,16 @@ DB初期化後の標準テンプレートは6件です。
 - `GET /api/migrations`
 - `GET /api/health`
 
-## 現在のrouting制約
+## legacy cleanup
 
-Phase 0時点では、通常画面のroutingはまだ明示target方式ではありません。
+現在の通常画面routingは `target_type` / `target_id` の明示方式です。
 
-- quick templateは `label` を検索欄に入れて `showTemplateForQuery(label)` を呼ぶ
-- search keyword APIは `keyword` のみ返す
-- `quick_templates.action` / `search_keywords.template_action` は通常画面で十分使われていない
-- `showTemplateForQuery()` には `category === "stroke"` のfallbackが残っている
+- `quick_templates.action` / `search_keywords.template_action` は旧routing互換値として残す
+- `templates.schema_json` は互換用に残す
+- 新規読み取り経路は `template_versions.schema_json` をsource of truthにする
+- `stroke-v1` は履歴・互換用として残す
 
-この制約はPhase 1で修正します。
+詳細は `docs/legacy-cleanup-inventory.md` を参照してください。
 
 ## 検証コマンド
 
@@ -122,9 +122,11 @@ Phase 0時点では、通常画面のroutingはまだ明示target方式ではあ
 py -3.10 -m py_compile server\template_schema.py server\init_db.py server\app.py server\smoke_test.py
 py -3.10 server\smoke_test.py
 & 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check js\app.js
+& 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check js\admin-builder.js
 & 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check js\admin.js
+& 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check js\templates.js
 & 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check js\copy-renderer.js
 & 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check js\copy-format.js
 & 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --check js\validation.js
-& 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --test tests\copy-renderer.test.js
+& 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --test tests\copy-renderer.test.js tests\generic-values.test.js tests\condition-engine.test.js tests\safety-rules.test.js
 ```

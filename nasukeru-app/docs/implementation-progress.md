@@ -406,3 +406,41 @@ Gate:
 Next:
 
 - Phase 9 Legacy Cleanup / Deprecation
+
+## Phase 9: Legacy Cleanup / Deprecation
+
+Status: PASS
+
+Base: `03b5cbd`
+
+Implemented:
+
+- `docs/legacy-cleanup-inventory.md` を追加
+- `templates.schema_json`、legacy routing値、`stroke-v1` 互換コードの棚卸しを記録
+- 通常API / 管理API / group APIの新規読み取り経路を `template_versions.schema_json` に寄せた
+- `templates.schema_json` は互換用として残し、物理削除は行わない
+- README / handoff にPhase 9の棚卸しとRemoval Gateを追記
+
+Tests:
+
+- Python compile PASS
+- JS syntax check PASS
+- copy renderer unit test PASS
+- generic value unit test PASS
+- condition engine unit test PASS
+- safety rules unit test PASS
+- smoke test PASS
+
+Review:
+
+- Critical: 0
+- High: 0
+- Medium: 0
+
+Gate:
+
+- PASS
+
+Next:
+
+- 慢性硬膜下血腫テンプレートなど、`generic-v2` 前提の新規テンプレート取り込み設計

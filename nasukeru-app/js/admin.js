@@ -1,7 +1,7 @@
 var adminTemplates = [];
 var adminFilter = "active";
 var restOptionCache = null;
-var DEFAULT_NEW_SCHEMA_FORMAT = "generic-v1";
+var DEFAULT_NEW_SCHEMA_FORMAT = "generic-v2";
 
 var VITAL_KEYS = ["jcs", "t", "bp", "hr", "spo2"];
 var SYMPTOM_KEYS = ["headache", "dizzy", "nausea"];
@@ -84,7 +84,7 @@ function normalizeDetailToSchema(detail) {
 
 function defaultGenericSchema() {
   return {
-    schemaFormat: "generic-v1",
+    schemaFormat: "generic-v2",
     sections: [
       {
         id: "basic",
@@ -121,6 +121,14 @@ function defaultGenericCopyFormat() {
       "{{basic.note}}"
     ]
   };
+}
+
+function templateById(id) {
+  return adminTemplates.find(function(item) { return item.id === id; });
+}
+
+function generateTemplateId() {
+  return NasukeruSimpleTemplateModel.randomId("tpl");
 }
 
 function appendGenericEditor(form, schema, copyFormat, schemaFormatGetter) {
@@ -277,6 +285,11 @@ function collectText(form, name) {
   return el ? el.value.trim() : "";
 }
 
+function collectNamedText(root, name) {
+  var el = root.querySelector('[name="' + name + '"]');
+  return el ? el.value.trim() : "";
+}
+
 function showErrorForApi(error) {
   if (error.status === 403) return "ローカル防御ヘッダを確認してください。";
   if (error.status === 409) return error.message || "状態が競合しています。";
@@ -346,6 +359,7 @@ function renderAdminRows() {
     actions.className = "admin-actions";
     if (item.is_active) {
       actions.appendChild(button("編集", "btn bg admin-row-btn", function(){ openEditModal(item); }));
+      actions.appendChild(button("下書きを確認", "btn bg admin-row-btn", function(){ openDraftReviewModal(item); }));
       actions.appendChild(button("削除", "btn bg admin-row-btn danger", function(){ openReasonModal("delete", item); }));
     } else {
       actions.appendChild(button("復元", "btn bg admin-row-btn", function(){ openReasonModal("restore", item); }));
@@ -377,61 +391,104 @@ async function loadAdminTemplates() {
 }
 
 function openCreateModal() {
-  openModal("新規追加", "");
+  openModal("新しいテンプレート", "似ているテンプレートから作るのがおすすめです");
+  renderCreateMethodStep();
+}
+
+function renderCreateMethodStep() {
+  var body = $("admin-modal-body");
+  var actions = $("admin-modal-actions");
+  clearNode(body);
+  clearNode(actions);
+  var wrap = document.createElement("div");
+  wrap.className = "simple-choice-grid";
+  var cloneCard = document.createElement("button");
+  cloneCard.type = "button";
+  cloneCard.className = "simple-choice-card recommended";
+  cloneCard.innerHTML = "<strong>似ているテンプレートから作る</strong><span>おすすめ</span><small>項目やコピー文を引き継ぎます</small>";
+  cloneCard.addEventListener("click", renderCloneStep);
+  var blankCard = document.createElement("button");
+  blankCard.type = "button";
+  blankCard.className = "simple-choice-card";
+  blankCard.innerHTML = "<strong>白紙から作る</strong><small>すべて最初から設定します</small>";
+  blankCard.addEventListener("click", function() {
+    var model = NasukeruSimpleTemplateModel.blankEditorModel();
+    model.id = generateTemplateId();
+    renderSimpleCreateEditor(model);
+  });
+  wrap.appendChild(cloneCard);
+  wrap.appendChild(blankCard);
+  body.appendChild(wrap);
+  actions.appendChild(button("閉じる", "btn bg", closeModal));
+}
+
+function renderCloneStep() {
+  var body = $("admin-modal-body");
+  var actions = $("admin-modal-actions");
+  clearNode(body);
+  clearNode(actions);
   var form = document.createElement("form");
   form.className = "admin-form";
-  var schemaFormatField = formSelect("テンプレート形式", "schema_format", DEFAULT_NEW_SCHEMA_FORMAT, [
-    { value: "generic-v1", label: "通常テンプレート（条件なし）" },
-    { value: "generic-v2", label: "条件付きテンプレート（表示・必須・出力条件あり）" }
-  ]);
-  form.appendChild(schemaFormatField);
-  appendGenericEditor(form, defaultGenericSchema(), defaultGenericCopyFormat(), function(){ return collectText(form, "schema_format"); });
-  form.appendChild(formField("ID", "id", "", { placeholder: "例: brainstem_custom" }));
-  form.appendChild(formField("表示名", "label", "", { placeholder: "例: 脳幹" }));
-  form.appendChild(formField("正式名称", "full", "", { placeholder: "例: 脳幹梗塞" }));
-  form.appendChild(formField("分類", "category", "stroke"));
-  form.appendChild(formField("追加理由", "change_reason", "", { textarea: true, rows: 3 }));
-  $("admin-modal-body").appendChild(form);
-  form.elements.schema_format.addEventListener("change", function() {
-    if (form.genericBuilder) form.genericBuilder.refresh();
+  var choices = adminTemplates.filter(function(item) {
+    return item.is_active && item.current_version_id;
+  }).map(function(item) {
+    return { value: item.id, label: item.label + " / " + item.full };
   });
+  if (!choices.length) {
+    form.appendChild(elText("div", "admin-empty-cell", "元にできる公開テンプレートがありません。白紙から作成してください。"));
+    body.appendChild(form);
+    actions.appendChild(button("戻る", "btn bg", renderCreateMethodStep));
+    return;
+  }
+  form.appendChild(formSelect("元にするテンプレート", "source_id", choices[0] && choices[0].value, choices));
+  form.appendChild(formField("新しいテンプレート名", "label", ""));
+  form.appendChild(formField("正式名称", "full", ""));
+  form.appendChild(formField("分類", "category", "neuro"));
+  body.appendChild(form);
+  actions.appendChild(button("戻る", "btn bg", renderCreateMethodStep));
+  actions.appendChild(button("この内容から作成", "btn bp", async function() {
+    try {
+      var source = await getTemplateDetail(collectText(form, "source_id"));
+      var model = NasukeruSimpleTemplateModel.schemaToEditorModel({
+        id: generateTemplateId(),
+        label: collectText(form, "label") || source.label + " コピー",
+        full: collectText(form, "full") || source.full + " コピー",
+        category: collectText(form, "category") || source.category,
+        schema: source.schema,
+        copy_format: source.copy_format,
+      });
+      renderSimpleCreateEditor(model);
+    } catch (error) {
+      setModalError(showErrorForApi(error));
+    }
+  }));
+}
 
-  $("admin-modal-actions").appendChild(button("閉じる", "btn bg", closeModal));
-  $("admin-modal-actions").appendChild(button("追加", "btn bp", async function() {
-    var id = collectText(form, "id");
-    if (!/^[a-z0-9_-]{1,32}$/.test(id)) {
-      setModalError("IDは小文字英数字・アンダースコア・ハイフンの1〜32文字で入力してください。");
+function renderSimpleCreateEditor(model) {
+  var body = $("admin-modal-body");
+  var actions = $("admin-modal-actions");
+  clearNode(body);
+  clearNode(actions);
+  var mount = document.createElement("div");
+  body.appendChild(mount);
+  var editor = NasukeruAdminSimple.create(mount, model);
+  var reason = formField("作成理由", "change_reason", "", { textarea: true, rows: 3 });
+  body.appendChild(reason);
+  actions.appendChild(button("閉じる", "btn bg", closeModal));
+  actions.appendChild(button("保存", "btn bp", async function() {
+    if (!model.label || !model.full || !model.category || !collectNamedText(body, "change_reason")) {
+      setModalError("テンプレート名、正式名称、分類、作成理由を入力してください。");
       return;
-    }
-    var label = collectText(form, "label");
-    var full = collectText(form, "full");
-    var category = collectText(form, "category");
-    var reason = collectText(form, "change_reason");
-    if (!label || !full || !category || !reason) {
-      setModalError("必須項目を入力してください。");
-      return;
-    }
-    var schema = defaultSchema();
-    var copyFormat = null;
-    if (isGenericSchemaFormat(collectText(form, "schema_format"))) {
-      try {
-        schema = collectGenericSchema(form);
-        schema.schemaFormat = collectText(form, "schema_format");
-        copyFormat = collectGenericCopyFormat(form);
-      } catch (error) {
-        setModalError(error.message || "generic schema / copy_format JSONの形式を確認してください。");
-        return;
-      }
     }
     try {
       var result = await createTemplate({
-        id: id,
-        label: label,
-        full: full,
-        category: category,
-        schema: schema,
-        copy_format: copyFormat,
-        change_reason: reason
+        id: model.id || generateTemplateId(),
+        label: model.label,
+        full: model.full,
+        category: model.category,
+        schema: editor.collectSchema(),
+        copy_format: editor.collectCopyFormat(),
+        change_reason: collectNamedText(body, "change_reason"),
       });
       closeModal();
       await loadAdminTemplates();
@@ -556,7 +613,7 @@ function collectGenericCopyFormat(form) {
 }
 
 async function openEditModal(item) {
-  openModal("schema編集", item.label + " / " + item.full);
+  openModal("テンプレート編集", item.label + " / " + item.full);
   var body = $("admin-modal-body");
   var loading = document.createElement("div");
   loading.className = "admin-empty-cell";
@@ -566,59 +623,51 @@ async function openEditModal(item) {
     var detail = await getTemplateDetail(item.id);
     var schema = normalizeDetailToSchema(detail);
     var isGeneric = isGenericSchemaFormat(detail.schema_format || schema.schemaFormat || "stroke-v1");
-    var restOptions = isGeneric ? [] : await getRestOptionsCached();
     clearNode(body);
-    var form = document.createElement("form");
-    form.className = "admin-form";
-    form.appendChild(formField("表示名", "label", item.label, { readonly: true }));
-    form.appendChild(formField("正式名称", "full", item.full, { readonly: true }));
-    form.appendChild(formField("分類", "category", item.category, { readonly: true }));
-    form.appendChild(formField("テンプレート形式", "schema_format_label", schemaFormatLabel(detail.schema_format || "stroke-v1"), { readonly: true }));
-    var schemaFormatHidden = document.createElement("input");
-    schemaFormatHidden.type = "hidden";
-    schemaFormatHidden.name = "schema_format";
-    schemaFormatHidden.value = detail.schema_format || "stroke-v1";
-    form.appendChild(schemaFormatHidden);
-    if (isGeneric) {
-      appendWarnings(form, detail.warnings);
-      appendGenericEditor(form, schema, detail.copy_format, function(){ return collectText(form, "schema_format"); });
-    } else {
-      appendSchemaFields(form, schema, restOptions);
+    if (!isGeneric) {
+      setModalError("旧形式のテンプレートは履歴確認用です。新しい編集画面では編集できません。");
+      return;
     }
-    form.appendChild(formField("変更概要", "change_summary", "", { textarea: true, rows: 2 }));
-    form.appendChild(formField("変更理由", "change_reason", "", { textarea: true, rows: 3 }));
-    body.appendChild(form);
+    appendWarnings(body, detail.warnings);
+    var mount = document.createElement("div");
+    body.appendChild(mount);
+    var model = NasukeruSimpleTemplateModel.schemaToEditorModel({
+      id: item.id,
+      label: item.label,
+      full: item.full,
+      category: item.category,
+      schema: schema,
+      copy_format: detail.copy_format,
+    });
+    if (detail.copy_format) model.copyMode = "custom";
+    var editor = NasukeruAdminSimple.create(mount, model);
+    var metaForm = document.createElement("form");
+    metaForm.className = "admin-form";
+    metaForm.appendChild(formField("変更概要", "change_summary", "", { textarea: true, rows: 2 }));
+    metaForm.appendChild(formField("変更理由", "change_reason", "", { textarea: true, rows: 3 }));
+    body.appendChild(metaForm);
 
     clearNode($("admin-modal-actions"));
     $("admin-modal-actions").appendChild(button("閉じる", "btn bg", closeModal));
-    $("admin-modal-actions").appendChild(button("保存", "btn bp", async function() {
-      var summary = collectText(form, "change_summary");
-      var reason = collectText(form, "change_reason");
+    $("admin-modal-actions").appendChild(button("下書き保存", "btn bp", async function() {
+      var summary = collectText(metaForm, "change_summary");
+      var reason = collectText(metaForm, "change_reason");
       if (!summary || !reason) {
         setModalError("変更概要と変更理由を入力してください。");
-        return;
-      }
-      var nextSchema;
-      var nextCopyFormat = null;
-      try {
-        nextSchema = isGeneric ? collectGenericSchema(form) : collectSchema(form);
-        if (isGeneric) nextCopyFormat = collectGenericCopyFormat(form);
-      } catch (error) {
-        setModalError(error.message);
         return;
       }
       try {
         var result = await createTemplateVersion(item.id, {
           base_version_id: detail.current_version_id,
-          schema: nextSchema,
-          copy_format: nextCopyFormat,
+          schema: editor.collectSchema(),
+          copy_format: editor.collectCopyFormat(),
           change_summary: summary,
           change_reason: reason
         });
         closeModal();
         await loadAdminTemplates();
         if (result && result.warnings && result.warnings.length) showWarningsToast(result.warnings);
-        else toast("下書きバージョンを作成しました。履歴から公開できます", "#2d7a3a");
+        else toast("下書きバージョンを作成しました", "#2d7a3a");
       } catch (error) {
         setModalError(showErrorForApi(error));
       }
@@ -732,15 +781,6 @@ function versionActionCell(item, version) {
   var wrap = document.createElement("div");
   wrap.className = "admin-actions";
   if (!item.is_active) return wrap;
-  if (version.status === "draft") {
-    wrap.appendChild(button("公開", "btn bg admin-row-btn", async function() {
-      try {
-        await runVersionPublicationAction(item, version, "publish");
-      } catch (error) {
-        setModalError(showErrorForApi(error));
-      }
-    }));
-  }
   if (item.current_version_id !== version.id && version.status !== "draft") {
     wrap.appendChild(button("復元公開", "btn bg admin-row-btn", async function() {
       try {
@@ -751,6 +791,82 @@ function versionActionCell(item, version) {
     }));
   }
   return wrap;
+}
+
+async function openDraftReviewModal(item) {
+  openModal("下書きを確認", item.label + " / " + item.full);
+  var body = $("admin-modal-body");
+  body.appendChild(document.createTextNode("読み込み中"));
+  $("admin-modal-actions").appendChild(button("閉じる", "btn bg", closeModal));
+  try {
+    var versions = await getTemplateVersions(item.id);
+    var draft = versions.find(function(version) { return version.status === "draft"; });
+    clearNode(body);
+    clearNode($("admin-modal-actions"));
+    if (!draft) {
+      body.appendChild(elText("div", "admin-empty-cell", "下書きはありません。編集から下書きを保存してください。"));
+      $("admin-modal-actions").appendChild(button("閉じる", "btn bg", closeModal));
+      return;
+    }
+    var detail = await getTemplateVersion(item.id, draft.id);
+    var section = formSection("下書き v" + draft.version_number);
+    section.appendChild(buildSmallTable(["項目", "内容"], [
+      ["変更概要", draft.change_summary || ""],
+      ["変更理由", draft.change_reason || ""],
+      ["作成日時", formatDate(draft.created_at)],
+    ]));
+    body.appendChild(section);
+    appendWarnings(body, detail.warnings);
+    var previewSection = formSection("内容確認");
+    previewSection.appendChild(renderJsonBlock({
+      schema: detail.schema,
+      copy_format: detail.copy_format,
+    }));
+    body.appendChild(previewSection);
+    var form = document.createElement("form");
+    form.className = "admin-form";
+    form.appendChild(formField("公開理由", "reason", draft.change_reason || "", { textarea: true, rows: 3 }));
+    var confirmWrap = document.createElement("label");
+    confirmWrap.className = "admin-dev-toggle";
+    var confirm = document.createElement("input");
+    confirm.type = "checkbox";
+    confirm.name = "confirm_high_risk";
+    confirmWrap.appendChild(confirm);
+    confirmWrap.appendChild(document.createTextNode("注意が必要な変更を確認しました"));
+    form.appendChild(confirmWrap);
+    body.appendChild(form);
+    $("admin-modal-actions").appendChild(button("編集に戻る", "btn bg", function(){ openEditModal(item); }));
+    $("admin-modal-actions").appendChild(button("公開する", "btn bp", async function() {
+      var reason = collectText(form, "reason");
+      if (!reason) {
+        setModalError("公開理由を入力してください。");
+        return;
+      }
+      try {
+        await publishTemplateVersion(item.id, draft.id, reason, confirm.checked);
+        closeModal();
+        await loadAdminTemplates();
+        toast("下書きを公開しました", "#2d7a3a");
+      } catch (error) {
+        var changes = error.data && error.data.high_risk_changes;
+        if (error.status === 409 && changes && changes.length) {
+          setModalError("注意が必要な変更があります。内容を確認してチェックを入れてください。\n" + highRiskSummary(changes));
+          return;
+        }
+        setModalError(showErrorForApi(error));
+      }
+    }));
+  } catch (error) {
+    clearNode(body);
+    setModalError(showErrorForApi(error));
+  }
+}
+
+function elText(tag, className, text) {
+  var node = document.createElement(tag);
+  if (className) node.className = className;
+  node.textContent = text;
+  return node;
 }
 
 async function openHistoryModal(item) {

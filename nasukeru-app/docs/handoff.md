@@ -303,16 +303,53 @@ Phase 11で追加された安全仕様:
 - backendは `visibleIf` cycle、number/select/multi_select条件値の型不一致、non-select fieldの `options` を拒否する
 - DB triggerはcurrent versionを直接 `retired` にする更新を拒否する
 
-## 8. 次にやること
+## 8. Phase 12 Simple Authoringの現状
+
+通常のテンプレート作成・編集導線はSimple Editorへ寄せています。
+
+実装済み:
+
+- 新規作成入口:
+  - 似ているテンプレートから作る
+  - 白紙から作る
+- 白紙作成は内部的に `generic-v2` 固定
+- Simple Editor通常UIでは、内部ID、schema形式、JSONを入力させない
+- 項目編集は日本語表示:
+  - 文字を入力
+  - 長い文章を入力
+  - 1つ選ぶ
+  - 複数選ぶ
+  - 数字を入力
+- 未入力時動作は日本語表示:
+  - 未入力でも問題なし
+  - コピー前に確認する
+  - 未入力ではコピーできない
+- optionの内部valueは保持し、通常UIではlabelだけを編集
+- 自動コピー文は `omitIfAllBlank` / `segments` を使い、空欄fieldを出力しない
+- 既存custom copy_formatは通常編集で勝手に上書きしない
+- 一覧に「下書きを確認」を追加し、通常publish導線は履歴から外した
+
+制限:
+
+- 新規templateはまだ既存 `POST /api/templates` を使うため、draft-only template APIは未実装
+- Simple condition builderは未実装。既存conditionは保持するが、通常UIからの編集は未対応
+- Previewはcopy生成の確認が中心。safety cardとcondition visibilityの完全共通化は未実装
+- search keyword / quick template / group membershipの管理UIは未実装
+- Developer Modeは確認用JSON表示で、直接JSON編集は旧Builderほどの編集機能をまだ持たない
+
+## 9. 次にやること
 
 推奨順序:
 
-1. 慢性硬膜下血腫テンプレートを `generic-v2` 前提で取り込む設計を起こす
-2. 状況グループ、派生出力の設計を起こす
-3. 管理画面の承認フローを追加する
-4. `docs/legacy-cleanup-inventory.md` のRemoval Gateを満たした項目から段階的に削除する
+1. Simple condition builderを追加する
+2. draft-only new template APIを追加する
+3. Preview safety card / condition visibilityを通常画面rendererと揃える
+4. Discovery Management API/UIを追加する
+5. 慢性硬膜下血腫テンプレートを `generic-v2` 前提で取り込む
+6. 状況グループ、派生出力の設計を起こす
+7. `docs/legacy-cleanup-inventory.md` のRemoval Gateを満たした項目から段階的に削除する
 
-## 9. 検証コマンド
+## 10. 検証コマンド
 
 ```powershell
 py -3.10 -m py_compile server\template_schema.py server\init_db.py server\app.py server\smoke_test.py
@@ -343,7 +380,7 @@ py -3.10 server\init_db.py
 py -3.10 server\app.py
 ```
 
-## 10. 注意点
+## 11. 注意点
 
 - `server/nasukeru.db` はローカル生成物でGit管理対象外
 - マイグレーションは既存バージョンを上書きせず、新バージョンを追加する

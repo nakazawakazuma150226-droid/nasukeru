@@ -445,6 +445,67 @@ Next:
 
 - 慢性硬膜下血腫テンプレートなど、`generic-v2` 前提の新規テンプレート取り込み設計
 
+## Phase 12: Simple Authoring Foundation
+
+Status: PARTIAL PASS
+
+Implemented:
+
+- 管理画面の通常導線をSimple Editorへ変更
+  - 新規作成は「似ているテンプレートから作る」「白紙から作る」から開始
+  - 白紙作成は内部的に `generic-v2` 固定
+  - 通常UIではtemplate ID、section ID、field ID、schema形式、JSONを入力させない
+- Simple Editor modelを追加
+  - `schema_json` / `copy_format_json` へcompileするauthoring layer
+  - section / field / option IDを自動生成
+  - legacy `requiredWarning=true` を実効動作として「コピー前に確認する」へ表示
+  - optionの内部 `value` は保持し、通常UIではlabelだけを編集
+- Simple Editor UIを追加
+  - 基本情報、入力項目、コピー文、プレビューを1画面に表示
+  - 入力方法と未入力時動作を日本語ラベル化
+  - numberのhardRange / warningRangeを日本語UIで編集
+  - Developer Modeは折りたたみの確認用JSONとして残す
+- Copy authoringの初期実装
+  - 自動copy modeでstacked / inlineをcompile
+  - `omitIfAllBlank` / `segments` を使い、未入力fieldを通常出力から省く
+  - 既存custom copy_formatは通常編集では保持する
+- Draft review導線を追加
+  - テンプレート一覧に「下書きを確認」を追加
+  - 通常の下書き公開は履歴画面から外し、下書き確認画面から行う
+
+Not implemented yet:
+
+- draft-only new template API
+- Simple condition builder
+- Preview safety card / condition visibilityの完全共通化
+- search keyword / quick template / group membershipのDiscovery Management UI
+- Developer Modeでの直接JSON編集
+
+Tests:
+
+- JS syntax check PASS
+- `tests/admin-simple.test.js` PASS
+- copy renderer unit test PASS
+- generic value unit test PASS
+- condition engine unit test PASS
+- safety rules unit test PASS
+- Python compile PASS
+- smoke test PASS
+- Browser manual check PASS
+  - 新規作成入口にSimple choice UIが表示される
+  - 白紙作成でSimple Editorが表示され、通常UIに技術用語が出ない
+  - 既存テンプレート編集でSimple Editorが表示され、下書き保存導線になる
+
+Review:
+
+- Critical: 0
+- High: 0
+- Medium: 0
+
+Gate:
+
+- PASS for Phase 12A foundation and initial Simple copy authoring slice
+
 ## Phase 11: Corrective Hardening
 
 Status: PASS

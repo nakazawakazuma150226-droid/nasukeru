@@ -18,6 +18,8 @@ EXPECTED_GETS = [
     ("/js/generic-values.js", 200),
     ("/js/condition-engine.js", 200),
     ("/js/safety-rules.js", 200),
+    ("/js/simple-template-model.js", 200),
+    ("/js/admin-simple.js", 200),
     ("/api/health", 200),
     ("/api/admin/templates", 200),
     ("/api/admin/templates/mca", 200),

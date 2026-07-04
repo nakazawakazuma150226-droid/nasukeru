@@ -213,6 +213,7 @@ def assert_json_contains(response, predicate, label, failures):
 def assert_current_version_integrity(db_path, failures):
     with sqlite3.connect(db_path) as conn:
         wrong_version_id = conn.execute("SELECT current_version_id FROM templates WHERE id = 'mca'").fetchone()[0]
+        current_version_id = conn.execute("SELECT current_version_id FROM templates WHERE id = 'test_template'").fetchone()[0]
         try:
             conn.execute(
                 "UPDATE templates SET current_version_id = ? WHERE id = 'test_template'",
@@ -223,6 +224,16 @@ def assert_current_version_integrity(db_path, failures):
         except sqlite3.IntegrityError:
             conn.rollback()
             print(" OK  current_version_id trigger rejects foreign version")
+        try:
+            conn.execute(
+                "UPDATE template_versions SET status = 'retired' WHERE id = ?",
+                (current_version_id,),
+            )
+            conn.commit()
+            failures.append(("current version status trigger rejects retire", "IntegrityError", "updated"))
+        except sqlite3.IntegrityError:
+            conn.rollback()
+            print(" OK  current version status trigger rejects retire")
 
 
 def render_template_line(text, values, override_ref=None, override_value=None):
@@ -394,7 +405,7 @@ def run_get_tests(client, failures):
 def run_write_tests(failures):
     original_db_path = os.environ.get("NASUKERU_DB_PATH")
     try:
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             db_path = Path(tmp) / "nasukeru-test.db"
             os.environ["NASUKERU_DB_PATH"] = str(db_path)
             init_db_main()
@@ -578,6 +589,24 @@ def run_write_tests(failures):
             )
             draft_json = draft_response.get_json() or {}
             draft_version_id = draft_json.get("version_id")
+            second_draft_payload = {
+                **update_payload,
+                "change_summary": "smoke update second draft",
+                "change_reason": "smoke second draft from same base",
+            }
+            second_draft_response = client.post(
+                "/api/templates/test_template/versions",
+                json=second_draft_payload,
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(
+                second_draft_response,
+                201,
+                "POST /api/templates/test_template/versions second draft same base",
+                failures,
+            )
+            second_draft_json = second_draft_response.get_json() or {}
+            second_draft_version_id = second_draft_json.get("version_id")
             assert_json_contains(
                 draft_response,
                 lambda item: item["status"] == "draft",
@@ -606,6 +635,25 @@ def run_write_tests(failures):
                 headers=LOCAL_HEADERS,
             )
             assert_status(publish_response, 200, "POST /api/templates/test_template/versions/<id>/publish", failures)
+            stale_draft_publish_response = client.post(
+                f"/api/templates/test_template/versions/{second_draft_version_id}/publish",
+                json={"reason": "smoke stale draft publish"},
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(
+                stale_draft_publish_response,
+                409,
+                "POST /api/templates/test_template/versions/<stale draft>/publish",
+                failures,
+            )
+            stale_versions = client.get("/api/templates/test_template/versions")
+            assert_status(stale_versions, 200, "GET /api/templates/test_template/versions after stale draft publish", failures)
+            assert_json_contains(
+                stale_versions,
+                lambda items: any(item["id"] == second_draft_version_id and item["status"] == "draft" for item in items),
+                "stale draft publish leaves draft status",
+                failures,
+            )
             updated_detail = client.get("/api/admin/templates/test_template")
             assert_status(updated_detail, 200, "GET /api/admin/templates/test_template after publish", failures)
             current_version_id = (updated_detail.get_json() or {}).get("current_version_id")
@@ -1005,6 +1053,44 @@ def run_write_tests(failures):
                 failures,
             )
 
+            invalid_number_eq_payload = copy.deepcopy(generic_v2_payload)
+            invalid_number_eq_payload["id"] = "bad_number_eq_condition"
+            invalid_number_eq_payload["schema"]["sections"][0]["fields"][0]["visibleIf"] = {
+                "op": "eq",
+                "field": "vitals.oxygen_flow",
+                "value": "4",
+            }
+            assert_status(
+                client.post("/api/templates", json=invalid_number_eq_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v2 rejects string eq for number condition",
+                failures,
+            )
+
+            invalid_select_value_payload = copy.deepcopy(generic_v2_payload)
+            invalid_select_value_payload["id"] = "bad_select_condition_value"
+            invalid_select_value_payload["schema"]["sections"][0]["fields"][1]["visibleIf"]["value"] = "O2"
+            assert_status(
+                client.post("/api/templates", json=invalid_select_value_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v2 rejects unknown select condition value",
+                failures,
+            )
+
+            condition_cycle_payload = copy.deepcopy(generic_v2_payload)
+            condition_cycle_payload["id"] = "bad_condition_cycle"
+            condition_cycle_payload["schema"]["sections"][0]["fields"][0]["visibleIf"] = {
+                "op": "eq",
+                "field": "vitals.oxygen_flow",
+                "value": 1,
+            }
+            assert_status(
+                client.post("/api/templates", json=condition_cycle_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v2 rejects visibleIf cycle",
+                failures,
+            )
+
             invalid_show_if_payload = copy.deepcopy(generic_v2_payload)
             invalid_show_if_payload["id"] = "bad_show_if"
             invalid_show_if_payload["copy_format"]["lines"][1]["showIf"]["field"] = "vitals.unknown"
@@ -1033,6 +1119,18 @@ def run_write_tests(failures):
                 client.post("/api/templates", json=invalid_number_payload, headers=LOCAL_HEADERS),
                 400,
                 "POST /api/templates generic-v1 invalid number step",
+                failures,
+            )
+
+            non_select_options_payload = copy.deepcopy(generic_payload)
+            non_select_options_payload["id"] = "bad_non_select_options"
+            non_select_options_payload["schema"]["sections"][0]["fields"][0]["options"] = [
+                {"value": "dead", "label": "Dead config"}
+            ]
+            assert_status(
+                client.post("/api/templates", json=non_select_options_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v1 rejects options on text field",
                 failures,
             )
 

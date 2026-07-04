@@ -92,15 +92,33 @@
   }
 
   function refsFromBuilder(root) {
-    var refs = [];
+    return fieldsFromBuilder(root).map(function(field) { return field.ref; });
+  }
+
+  function fieldsFromBuilder(root) {
+    var fields = [];
     root.querySelectorAll("[data-builder-section]").forEach(function(section) {
       var sectionId = section.querySelector(".builder-section-id").value.trim();
       section.querySelectorAll("[data-builder-field]").forEach(function(field) {
         var fieldId = field.querySelector(".builder-field-id").value.trim();
-        if (sectionId && fieldId) refs.push(sectionId + "." + fieldId);
+        if (sectionId && fieldId) {
+          fields.push({
+            ref: sectionId + "." + fieldId,
+            type: field.querySelector(".builder-field-type").value,
+            options: collectOptions(field),
+          });
+        }
       });
     });
-    return refs;
+    return fields;
+  }
+
+  function fieldMapFromBuilder(root) {
+    var map = {};
+    fieldsFromBuilder(root).forEach(function(field) {
+      map[field.ref] = field;
+    });
+    return map;
   }
 
   function placeholderRefs(text) {
@@ -159,7 +177,8 @@
   }
 
   function updateRefSelects(root) {
-    var refs = refsFromBuilder(root);
+    var fieldMap = fieldMapFromBuilder(root);
+    var refs = Object.keys(fieldMap);
     root.querySelectorAll(".builder-ref-select").forEach(function(sel) {
       var current = sel.value || sel.dataset.pendingValue || "";
       sel.innerHTML = "";
@@ -176,6 +195,51 @@
       sel.value = refs.indexOf(current) >= 0 ? current : "";
       sel.dataset.pendingValue = sel.value;
     });
+    root.querySelectorAll(".admin-condition-row").forEach(function(wrap) {
+      updateConditionValueEditor(wrap, fieldMap);
+    });
+  }
+
+  function replaceConditionValueControl(wrap, next) {
+    var current = wrap.querySelector(".builder-condition-value");
+    if (!current) {
+      wrap.appendChild(next);
+      return next;
+    }
+    if (current.tagName === "INPUT" && next.tagName === "INPUT" && current.type === next.type) {
+      current.disabled = next.disabled;
+      current.placeholder = next.placeholder;
+      return current;
+    }
+    current.replaceWith(next);
+    return next;
+  }
+
+  function updateConditionValueEditor(wrap, fieldMap) {
+    var fieldRef = wrap.querySelector(".builder-condition-field").value;
+    var op = wrap.querySelector(".builder-condition-op").value;
+    var current = wrap.querySelector(".builder-condition-value");
+    var currentValue = current ? current.value : "";
+    var meta = fieldMap[fieldRef];
+    if (op === "is_blank") {
+      var blankInput = input("builder-condition-value", "", "");
+      blankInput.disabled = true;
+      replaceConditionValueControl(wrap, blankInput);
+      return;
+    }
+    if (meta && (meta.type === "select" || (meta.type === "multi_select" && op === "contains"))) {
+      var choices = [{ value: "", label: "select value" }].concat(meta.options || []);
+      var optionSelect = select("builder-condition-value", currentValue, choices);
+      replaceConditionValueControl(wrap, optionSelect);
+      return;
+    }
+    if (meta && meta.type === "number") {
+      var numberInput = input("builder-condition-value", currentValue, "value", "number");
+      replaceConditionValueControl(wrap, numberInput);
+      return;
+    }
+    var textInput = input("builder-condition-value", currentValue, "value");
+    replaceConditionValueControl(wrap, textInput);
   }
 
   function conditionControls(condition) {
@@ -187,6 +251,12 @@
     wrap.appendChild(select("builder-condition-op", condition.op || "", CONDITION_OP_CHOICES));
     wrap.appendChild(input("builder-condition-value", condition.value == null ? "" : condition.value, "値"));
     return wrap;
+  }
+
+  function updateFieldTypeUi(card) {
+    var type = card.querySelector(".builder-field-type").value;
+    var optionsRow = card.querySelector(".builder-options-row");
+    if (optionsRow) optionsRow.hidden = type !== "select" && type !== "multi_select";
   }
 
   function addOptionRow(list, option) {
@@ -233,7 +303,9 @@
     if (!field || !op) return null;
     if (op === "is_blank") return { op: op, field: field };
     var value = raw;
-    if (["gt", "gte", "lt", "lte"].indexOf(op) >= 0 && raw !== "") value = Number(raw);
+    var root = wrap.closest("[data-admin-builder]");
+    var fieldMeta = root ? fieldMapFromBuilder(root)[field] : null;
+    if (fieldMeta && fieldMeta.type === "number" && raw !== "") value = Number(raw);
     return { op: op, field: field, value: value };
   }
 
@@ -247,10 +319,15 @@
     textareaNode.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
+  function cloneValue(value) {
+    return value == null ? value : JSON.parse(JSON.stringify(value));
+  }
+
   function addField(sectionNode, field) {
     field = field || { id: "field", label: "項目", type: "text", allowEmpty: true };
     var card = el("div", "admin-builder-card", null);
     card.dataset.builderField = "1";
+    card.originalField = cloneValue(field);
     var header = el("div", "admin-builder-card-head");
     header.appendChild(el("strong", "", "Field"));
     var remove = el("button", "btn bg admin-row-btn", "削除");
@@ -266,9 +343,13 @@
     grid.appendChild(row("ID", input("builder-field-id", field.id, "例: oxygen_use")));
     grid.appendChild(row("ラベル", input("builder-field-label", field.label, "例: 酸素使用")));
     grid.appendChild(row("種別", select("builder-field-type", field.type, FIELD_TYPE_CHOICES)));
+    grid.appendChild(row("表示順", input("builder-field-order", field.displayOrder == null ? "" : field.displayOrder, "", "number")));
     grid.appendChild(row("単位", input("builder-field-unit", field.unit || "", "例: L")));
     grid.appendChild(row("placeholder", input("builder-field-placeholder", field.placeholder || "", "")));
     grid.appendChild(row("空欄時", select("builder-field-blank-policy", field.blankPolicy || "", BLANK_POLICY_CHOICES)));
+    grid.appendChild(row("最小値", input("builder-field-min", field.min, "", "number")));
+    grid.appendChild(row("最大値", input("builder-field-max", field.max, "", "number")));
+    grid.appendChild(row("刻み", input("builder-field-step", field.step, "", "number")));
     grid.appendChild(row("入力不可の下限", input("builder-hard-min", field.hardRange && field.hardRange.min, "", "number")));
     grid.appendChild(row("入力不可の上限", input("builder-hard-max", field.hardRange && field.hardRange.max, "", "number")));
     grid.appendChild(row("警告の下限", input("builder-warning-min", field.warningRange && field.warningRange.min, "", "number")));
@@ -281,11 +362,16 @@
     card.appendChild(row("必須条件", conditionControls(field.requiredIf), "builder-required-if-row"));
 
     ["builder-field-id", "builder-field-type"].forEach(function(cls) {
-      card.querySelector("." + cls).addEventListener("input", function() {
+      var control = card.querySelector("." + cls);
+      var sync = function() {
+        updateFieldTypeUi(card);
         updateRefSelects(sectionNode.closest("[data-admin-builder]"));
-      });
+      };
+      control.addEventListener("input", sync);
+      control.addEventListener("change", sync);
     });
     sectionNode.querySelector(".admin-builder-fields").appendChild(card);
+    updateFieldTypeUi(card);
     updateRefSelects(sectionNode.closest("[data-admin-builder]"));
   }
 
@@ -363,33 +449,54 @@
       var order = sectionNode.querySelector(".builder-section-order").value;
       if (order !== "") section.displayOrder = Number(order);
       sectionNode.querySelectorAll("[data-builder-field]").forEach(function(fieldNode) {
-        var field = {
-          id: fieldNode.querySelector(".builder-field-id").value.trim(),
-          label: fieldNode.querySelector(".builder-field-label").value.trim(),
-          type: fieldNode.querySelector(".builder-field-type").value,
-        };
+        var field = Object.assign({}, cloneValue(fieldNode.originalField) || {});
+        field.id = fieldNode.querySelector(".builder-field-id").value.trim();
+        field.label = fieldNode.querySelector(".builder-field-label").value.trim();
+        field.type = fieldNode.querySelector(".builder-field-type").value;
+        var displayOrder = fieldNode.querySelector(".builder-field-order").value;
+        if (displayOrder !== "") field.displayOrder = Number(displayOrder);
+        else delete field.displayOrder;
         ["unit", "placeholder", "helpText"].forEach(function(key) {
           var cls = key === "helpText" ? ".builder-field-help" : ".builder-field-" + key;
           var value = fieldNode.querySelector(cls).value.trim();
           if (value) field[key] = value;
+          else delete field[key];
         });
         var blankPolicy = fieldNode.querySelector(".builder-field-blank-policy").value;
         if (blankPolicy) field.blankPolicy = blankPolicy;
+        else delete field.blankPolicy;
+        [["min", ".builder-field-min"], ["max", ".builder-field-max"], ["step", ".builder-field-step"]].forEach(function(item) {
+          var value = fieldNode.querySelector(item[1]).value;
+          if (value !== "") field[item[0]] = Number(value);
+          else delete field[item[0]];
+        });
         var options = collectOptions(fieldNode);
-        if (options.length) field.options = options;
+        if (field.type === "select" || field.type === "multi_select") {
+          if (options.length) field.options = options;
+        } else {
+          delete field.options;
+        }
         [["hardRange", ".builder-hard-min", ".builder-hard-max"], ["warningRange", ".builder-warning-min", ".builder-warning-max"]].forEach(function(item) {
           var min = fieldNode.querySelector(item[1]).value;
           var max = fieldNode.querySelector(item[2]).value;
-          if (min !== "" || max !== "") {
+          delete field[item[0]];
+          if (field.type === "number" && (min !== "" || max !== "")) {
             field[item[0]] = {};
             if (min !== "") field[item[0]].min = Number(min);
             if (max !== "") field[item[0]].max = Number(max);
           }
         });
+        if (field.type !== "number") {
+          delete field.min;
+          delete field.max;
+          delete field.step;
+        }
         var visibleIf = collectCondition(fieldNode.querySelector(".builder-visible-if-row .admin-condition-row"));
         var requiredIf = collectCondition(fieldNode.querySelector(".builder-required-if-row .admin-condition-row"));
         if (visibleIf) field.visibleIf = visibleIf;
+        else delete field.visibleIf;
         if (requiredIf) field.requiredIf = requiredIf;
+        else delete field.requiredIf;
         section.fields.push(field);
       });
       sections.push(section);

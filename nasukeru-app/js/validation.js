@@ -44,6 +44,12 @@ function getSafetyValidationResult(card) {
 }
 
 function getGenericSafetyValidationResult(card) {
+  if (card.dataset.conditionError === "true") {
+    return {
+      blocks: [{ fieldRef: "", code: "condition_error", severity: "block", message: "条件表示の設定を確認してください" }],
+      warnings: [],
+    };
+  }
   var values = NasukeruGenericValues.collectTypedValues(card);
   var fields = [];
   card.querySelectorAll(".generic-input").forEach(function(input) {

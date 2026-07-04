@@ -1,6 +1,7 @@
 // ── Copy output ──
 var currentCopyCard = null;
 var currentCopySafetyResult = { blocks: [], warnings: [] };
+var currentCopyRenderResult = { text: "", unresolvedRefs: [], warnings: [] };
 function openCov(card) {
   currentCopyCard = card;
   buildCopyText();
@@ -11,11 +12,12 @@ function closeCov() { document.getElementById("cov").classList.remove("show"); c
 function buildCopyText() {
   if (!currentCopyCard) return;
   currentCopySafetyResult = getSafetyValidationResult(currentCopyCard);
-  renderSafetyValidation(currentCopySafetyResult);
   if (currentCopyCard.dataset.schemaFormat === "generic-v1" || currentCopyCard.dataset.schemaFormat === "generic-v2") {
     buildGenericCopyText();
+    renderSafetyValidation(currentCopySafetyResult);
     return;
   }
+  renderSafetyValidation(currentCopySafetyResult);
   var lines = [];
   var titleEl = currentCopyCard.querySelector(".stroke-title");
   var title = titleEl ? titleEl.textContent : "";
@@ -144,7 +146,43 @@ function buildGenericTemplateCopyText(copyFormat) {
   var values = collectGenericValues();
   var conditionValues = collectGenericConditionValues();
   var result = NasukeruCopyRenderer.renderGenericTemplateCopyResult(copyFormat, values, conditionValues);
+  currentCopyRenderResult = result;
+  currentCopySafetyResult = mergeCopyRenderWarnings(currentCopySafetyResult, result);
   document.getElementById("prev").textContent = result.text;
+}
+
+function genericFieldMetaByRef(card) {
+  var meta = {};
+  card.querySelectorAll(".generic-input").forEach(function(input) {
+    var ref = input.dataset.sectionId + "." + input.dataset.fieldId;
+    meta[ref] = {
+      label: input.dataset.fieldLabel || ref,
+    };
+  });
+  return meta;
+}
+
+function mergeCopyRenderWarnings(safetyResult, renderResult) {
+  var result = {
+    blocks: ((safetyResult && safetyResult.blocks) || []).slice(),
+    warnings: ((safetyResult && safetyResult.warnings) || []).slice(),
+  };
+  var seen = {};
+  result.blocks.concat(result.warnings).forEach(function(issue) {
+    if (issue && issue.fieldRef) seen[issue.fieldRef] = true;
+  });
+  var meta = genericFieldMetaByRef(currentCopyCard);
+  (renderResult.unresolvedRefs || []).forEach(function(ref) {
+    if (seen[ref]) return;
+    seen[ref] = true;
+    result.warnings.push({
+      fieldRef: ref,
+      code: "unresolved_copy_ref",
+      severity: "warn",
+      message: (meta[ref] && meta[ref].label ? meta[ref].label : ref) + "が未入力のままコピー文に含まれています",
+    });
+  });
+  return result;
 }
 
 function doCopy() {

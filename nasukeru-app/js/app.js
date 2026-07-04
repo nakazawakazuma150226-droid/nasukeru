@@ -7,7 +7,6 @@ var quickTemplates = [];
 var restOptions = [];
 var routeOptions = [];
 var allKw = [];
-var currentGroupState = {};
 
 // ── Quick list ──
 function buildQuickList() {
@@ -217,7 +216,7 @@ function buildTemplateGroupCard(group) {
   var wrap = document.createElement("div");
   wrap.className = "group-wrap";
   wrap.dataset.groupId = group.id;
-  if (!currentGroupState[group.id]) currentGroupState[group.id] = {};
+  var groupState = {};
 
   var tabs = document.createElement("div");
   tabs.className = "subtabs";
@@ -231,12 +230,12 @@ function buildTemplateGroupCard(group) {
   function saveCurrentState() {
     var activeCard = body.querySelector(".tc");
     if (activeCard && activeCard.dataset.templateId) {
-      currentGroupState[group.id][activeCard.dataset.templateId] = readGenericInputState(activeCard);
+      groupState[activeCard.dataset.templateId] = readGenericInputState(activeCard);
     }
   }
 
-  function renderSelected(templateId) {
-    saveCurrentState();
+  function renderSelected(templateId, shouldSaveState) {
+    if (shouldSaveState !== false) saveCurrentState();
     selectedTemplateId = templateId;
     body.innerHTML = "";
     tabs.querySelectorAll(".stab").forEach(function(button) {
@@ -244,9 +243,14 @@ function buildTemplateGroupCard(group) {
     });
     var template = group.templates.find(function(item){ return item.id === templateId; });
     if (!template) return;
-    var templateCard = buildGenericCard(template);
+    var templateCard = buildGenericCard(template, {
+      onClear: function() {
+        groupState[templateId] = {};
+        renderSelected(templateId, false);
+      },
+    });
     body.appendChild(templateCard);
-    restoreGenericInputState(templateCard, currentGroupState[group.id][templateId]);
+    restoreGenericInputState(templateCard, groupState[templateId]);
     currentCard = templateCard;
   }
 
@@ -263,7 +267,8 @@ function buildTemplateGroupCard(group) {
   return wrap;
 }
 
-function buildGenericCard(template) {
+function buildGenericCard(template, options) {
+  options = options || {};
   var div = document.createElement("div");
   div.className = "tc";
   div.dataset.schemaFormat = schemaFormat(template);
@@ -283,7 +288,10 @@ function buildGenericCard(template) {
   var cpBtn = document.createElement("button"); cpBtn.className = "btn bp"; cpBtn.textContent = "コピー出力";
   cpBtn.addEventListener("click", function(){ openCov(div); });
   var clBtn = document.createElement("button"); clBtn.className = "btn bg"; clBtn.textContent = "クリア";
-  clBtn.addEventListener("click", function(){ showGeneric(template); });
+  clBtn.addEventListener("click", function(){
+    if (options.onClear) options.onClear();
+    else showGeneric(template);
+  });
   ftr.appendChild(cpBtn); ftr.appendChild(clBtn);
 
   div.appendChild(hdr); div.appendChild(body); div.appendChild(ftr);
@@ -436,20 +444,38 @@ function bindGenericConditionUpdates(container) {
 }
 
 function updateGenericConditions(container) {
-  var values = NasukeruGenericValues.collectTypedValues(container);
-  container.querySelectorAll(".nrow").forEach(function(row) {
-    var input = row.querySelector(".generic-input");
-    if (!input) return;
-    var visible = row.genericVisibleIf
-      ? NasukeruConditionEngine.evaluateCondition(row.genericVisibleIf, values)
-      : true;
-    row.hidden = !visible;
-    input.dataset.conditionVisible = visible ? "true" : "false";
-    if (!visible) {
-      NasukeruGenericValues.applyInputValue(input, "");
-      values[NasukeruGenericValues.fieldRef(input)] = NasukeruGenericValues.parseInputValue(input);
-    }
+  var rows = Array.prototype.slice.call(container.querySelectorAll(".nrow")).filter(function(row) {
+    return row.querySelector(".generic-input");
   });
+  var stable = false;
+  for (var pass = 0; pass <= rows.length; pass += 1) {
+    var values = NasukeruGenericValues.collectTypedValues(container);
+    var changed = false;
+    rows.forEach(function(row) {
+      var input = row.querySelector(".generic-input");
+      var visible = row.genericVisibleIf
+        ? NasukeruConditionEngine.evaluateCondition(row.genericVisibleIf, values)
+        : true;
+      if (row.hidden === visible) {
+        row.hidden = !visible;
+        changed = true;
+      }
+      input.dataset.conditionVisible = visible ? "true" : "false";
+      if (!visible && !NasukeruGenericValues.isBlankValue(NasukeruGenericValues.parseInputValue(input))) {
+        NasukeruGenericValues.applyInputValue(input, "");
+        changed = true;
+      }
+    });
+    if (!changed) {
+      stable = true;
+      break;
+    }
+  }
+  container.dataset.conditionError = stable ? "false" : "true";
+  var card = container.closest(".tc");
+  if (card) {
+    card.dataset.conditionError = container.dataset.conditionError;
+  }
 }
 
 function switchStrokeTab(idx) {

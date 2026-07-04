@@ -542,8 +542,10 @@ def ensure_schema(conn):
           created_at TEXT NOT NULL,
           approved_by TEXT,
           approved_at TEXT,
+          base_version_id INTEGER,
           status TEXT NOT NULL DEFAULT 'published',
           FOREIGN KEY (template_id) REFERENCES templates(id),
+          FOREIGN KEY (base_version_id) REFERENCES template_versions(id),
           UNIQUE (template_id, version_number)
         );
 
@@ -626,6 +628,7 @@ def ensure_schema(conn):
     ensure_column(conn, "templates", "current_version_id", "INTEGER")
     ensure_column(conn, "templates", "status", "TEXT NOT NULL DEFAULT 'published'")
     ensure_column(conn, "template_versions", "status", "TEXT NOT NULL DEFAULT 'published'")
+    ensure_column(conn, "template_versions", "base_version_id", "INTEGER")
     ensure_column(conn, "quick_templates", "target_type", "TEXT")
     ensure_column(conn, "quick_templates", "target_id", "TEXT")
     ensure_column(conn, "search_keywords", "target_type", "TEXT")
@@ -664,6 +667,19 @@ def ensure_current_version_triggers(conn):
           )
         BEGIN
           SELECT RAISE(ABORT, 'current_version_id must reference a published version of the same template');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_template_versions_current_status_update
+        BEFORE UPDATE OF status ON template_versions
+        FOR EACH ROW
+        WHEN NEW.status <> 'published'
+          AND EXISTS (
+            SELECT 1
+            FROM templates
+            WHERE current_version_id = OLD.id
+          )
+        BEGIN
+          SELECT RAISE(ABORT, 'current version must remain published');
         END;
         """
     )

@@ -50,6 +50,16 @@ test("hardRange blocks and warningRange warns", () => {
   assert.equal(result.blocks[0].code, "hard_range");
 });
 
+test("invalid number creates a block issue", () => {
+  const result = safety.validateFields(
+    [{ ref: "vitals.spo2", label: "SpO2", type: "number", value: "abc", visible: true }],
+    {}
+  );
+  assert.equal(result.blocks.length, 1);
+  assert.equal(result.blocks[0].code, "invalid_number");
+  assert.equal(result.warnings.length, 0);
+});
+
 test("hidden fields do not produce safety issues", () => {
   const result = safety.validateFields(
     [{ ref: "vitals.flow", label: "Flow", type: "number", value: null, visible: false, blankPolicy: "block" }],

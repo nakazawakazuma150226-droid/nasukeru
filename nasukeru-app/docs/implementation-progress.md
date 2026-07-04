@@ -445,6 +445,58 @@ Next:
 
 - 慢性硬膜下血腫テンプレートなど、`generic-v2` 前提の新規テンプレート取り込み設計
 
+## Phase 11: Corrective Hardening
+
+Status: PASS
+
+Base: `a8e8b76`
+
+Implemented:
+
+- Template Builder lossless field round-trip:
+  - preserves original field properties such as `requiredWarning`, `allowEmpty`, `min`, `max`, `step`, and field `displayOrder`
+  - strips incompatible properties when field type changes
+  - condition value editor now uses number input for number fields and option picker for select / contains conditions
+- Draft publish concurrency:
+  - `template_versions.base_version_id` records the published version a draft was created from
+  - publish rejects stale drafts with 409 when the current version has moved
+- Runtime copy safety:
+  - invalid number input creates `invalid_number` block issue
+  - unresolved copy renderer refs are merged into copy safety warnings so `__` does not silently copy
+- Group UI state:
+  - group tab input state moved from global storage to each group card closure
+  - group clear keeps the group UI and only clears the active tab
+- Condition hardening:
+  - frontend visibility evaluation now converges with fixed-point passes
+  - convergence failure blocks copy
+  - backend rejects `visibleIf` dependency cycles
+  - backend validates condition value types for number/select/multi_select cases
+- DB invariant:
+  - current version cannot be retired directly
+  - publish/rollback order now keeps `templates.current_version_id` pointing at a published version
+- Test robustness:
+  - smoke test covers two-draft stale publish, condition cycles/type errors, non-select options rejection, current-version retire trigger, and Windows temp DB cleanup
+
+Tests:
+
+- Python compile PASS
+- JS syntax check PASS
+- copy renderer unit test PASS
+- generic value unit test PASS
+- condition engine unit test PASS
+- safety rules unit test PASS
+- smoke test PASS
+
+Review:
+
+- Critical: 0
+- High: 0
+- Medium: 0
+
+Gate:
+
+- PASS
+
 ## Phase 10: Residual Safety / Admin Warning Refinement
 
 Status: PASS

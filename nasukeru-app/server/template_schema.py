@@ -253,7 +253,7 @@ def validate_generic_field(field, section_field, used_ids):
             raise SchemaValidationError(f"{section_field}.options must be a non-empty array")
         validate_options(options, f"{section_field}.options")
     elif "options" in field:
-        validate_options(field["options"], f"{section_field}.options")
+        raise SchemaValidationError(f"{section_field}.options requires select or multi_select field")
 
 
 def generic_field_refs(schema):
@@ -311,13 +311,59 @@ def validate_condition(condition, field_refs, field, depth=0):
     elif op in ("in", "not_in"):
         if not isinstance(value, list) or not value:
             raise SchemaValidationError(f"{field}.value must be a non-empty array for {op}")
+        if target_type == "number" and any(not isinstance(item, (int, float)) or isinstance(item, bool) for item in value):
+            raise SchemaValidationError(f"{field}.value must contain numbers for {op}")
+        if target_type in ("select", "multi_select"):
+            allowed_values = {option["value"] for option in target.get("options", [])}
+            unknown_values = [item for item in value if item not in allowed_values]
+            if unknown_values:
+                raise SchemaValidationError(f"{field}.value references unknown option value: {unknown_values[0]}")
     elif op == "contains":
         if target_type != "multi_select":
             raise SchemaValidationError(f"{field}.field must reference a multi_select field for contains")
         if isinstance(value, (dict, list)):
             raise SchemaValidationError(f"{field}.value must be a scalar for contains")
+        allowed_values = {option["value"] for option in target.get("options", [])}
+        if value not in allowed_values:
+            raise SchemaValidationError(f"{field}.value references unknown option value: {value}")
+    elif target_type == "number" and op in ("eq", "neq"):
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise SchemaValidationError(f"{field}.value must be a number for {op}")
+    elif target_type == "select" and op in ("eq", "neq"):
+        allowed_values = {option["value"] for option in target.get("options", [])}
+        if value not in allowed_values:
+            raise SchemaValidationError(f"{field}.value references unknown option value: {value}")
     elif isinstance(value, (dict, list)):
         raise SchemaValidationError(f"{field}.value must be a scalar for {op}")
+
+
+def detect_visible_condition_cycles(schema):
+    refs = generic_field_refs(schema)
+    graph = {ref: set() for ref in refs}
+    for section in schema.get("sections", []):
+        for field in section.get("fields", []):
+            ref = f"{section['id']}.{field['id']}"
+            for dependency in iter_condition_field_refs(field.get("visibleIf")):
+                if dependency in graph:
+                    graph[ref].add(dependency)
+
+    visiting = set()
+    visited = set()
+
+    def visit(ref, path):
+        if ref in visiting:
+            cycle = " -> ".join(path + [ref])
+            raise SchemaValidationError(f"visibleIf condition cycle detected: {cycle}")
+        if ref in visited:
+            return
+        visiting.add(ref)
+        for dependency in graph.get(ref, set()):
+            visit(dependency, path + [ref])
+        visiting.remove(ref)
+        visited.add(ref)
+
+    for ref in graph:
+        visit(ref, [])
 
 
 def validate_generic_v1_schema(schema):
@@ -374,6 +420,7 @@ def validate_generic_v1_schema(schema):
                 validate_condition(field["visibleIf"], refs, f"{field_path}.visibleIf")
             if "requiredIf" in field:
                 validate_condition(field["requiredIf"], refs, f"{field_path}.requiredIf")
+    detect_visible_condition_cycles(schema)
     return schema
 
 

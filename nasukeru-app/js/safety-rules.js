@@ -52,6 +52,11 @@
       return result;
     }
 
+    if (field.type === "number" && !Number.isFinite(value)) {
+      result.blocks.push(issue(field, "invalid_number", "block", label + "は数値で入力してください"));
+      return result;
+    }
+
     if (field.type === "number" && isOutsideRange(value, field.hardRange)) {
       result.blocks.push(issue(field, "hard_range", "block", label + "が入力可能範囲外です"));
     }

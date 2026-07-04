@@ -28,6 +28,8 @@ EXPECTED_GETS = [
     ("/api/templates/unknown/versions", 404),
     ("/api/templates/unknown/logs", 404),
     ("/api/quick-templates", 200),
+    ("/api/template-groups/cerebral_infarction", 200),
+    ("/api/template-groups/unknown", 404),
     ("/api/rest-options", 200),
     ("/api/search-keywords", 200),
     ("/api/migrations", 200),
@@ -370,14 +372,39 @@ def run_write_tests(failures):
             )
             assert_json_contains(
                 client.get("/api/quick-templates"),
-                lambda items: any(item["label"] == "脳卒中共通" and item["action"] == "neuro_common" for item in items),
+                lambda items: any(
+                    item["label"] == "脳梗塞"
+                    and item["target"] == {"type": "group", "id": "cerebral_infarction"}
+                    for item in items
+                )
+                and any(
+                    item["label"] == "脳卒中共通"
+                    and item["target"] == {"type": "template", "id": "neuro_common"}
+                    for item in items
+                ),
                 "GET /api/quick-templates includes neuro common",
                 failures,
             )
             assert_json_contains(
                 client.get("/api/search-keywords"),
-                lambda items: "脳卒中共通" in items and "脳神経共通テンプレート" in items,
+                lambda items: any(
+                    item["keyword"] == "脳梗塞"
+                    and item["target"] == {"type": "group", "id": "cerebral_infarction"}
+                    for item in items
+                )
+                and any(
+                    item["keyword"] == "脳卒中共通"
+                    and item["target"] == {"type": "template", "id": "neuro_common"}
+                    for item in items
+                ),
                 "GET /api/search-keywords includes neuro common keywords",
+                failures,
+            )
+            assert_json_contains(
+                client.get("/api/template-groups/cerebral_infarction"),
+                lambda group: group["id"] == "cerebral_infarction"
+                and [item["id"] for item in group["templates"]] == ["mca", "aca", "pca", "lacunar", "brainstem"],
+                "GET /api/template-groups/cerebral_infarction returns stroke group",
                 failures,
             )
 

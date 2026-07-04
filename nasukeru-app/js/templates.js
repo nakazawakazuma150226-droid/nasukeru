@@ -51,6 +51,10 @@ async function getSearchKeywords() {
   return getJson("/api/search-keywords");
 }
 
+async function getTemplateGroup(id) {
+  return getJson("/api/template-groups/" + encodeURIComponent(id));
+}
+
 async function getAdminTemplates() {
   return getJson("/api/admin/templates");
 }

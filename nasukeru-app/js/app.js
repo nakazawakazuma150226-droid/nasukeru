@@ -5,8 +5,9 @@ var strokeTemplates = [];
 var genericTemplates = [];
 var quickTemplates = [];
 var restOptions = [];
-var defaultKeywords = ["脳梗塞","脳卒中","stroke"];
-var allKw = defaultKeywords.slice();
+var routeOptions = [];
+var allKw = [];
+var currentGroupState = {};
 
 // ── Quick list ──
 function buildQuickList() {
@@ -20,7 +21,7 @@ function buildQuickList() {
     el.appendChild(dot); el.appendChild(name); el.appendChild(tag);
     el.addEventListener("click", function() {
       document.getElementById("si").value = q.label;
-      showTemplateForQuery(q.label);
+      openTarget(q.target);
     });
     list.appendChild(el);
   });
@@ -44,16 +45,16 @@ function appendHighlightedText(parent, txt, q) {
 
 function showAC(q) {
   if (!q) { acd.classList.remove("show"); return; }
-  var ms = allKw.filter(function(k){ return k.toLowerCase().includes(q.toLowerCase()); }).slice(0,6);
+  var ms = routeOptions.filter(function(item){ return item.label.toLowerCase().includes(q.toLowerCase()); }).slice(0,6);
   acd.innerHTML = "";
-  ms.forEach(function(k) {
+  ms.forEach(function(item) {
     var el = document.createElement("div"); el.className = "aci";
     var icon = document.createElement("span"); icon.textContent = "⌕";
-    var label = document.createElement("span"); appendHighlightedText(label, k, q);
-    var badge = document.createElement("span"); badge.className = "acb"; badge.textContent = "専用テンプレ";
+    var label = document.createElement("span"); appendHighlightedText(label, item.label, q);
+    var badge = document.createElement("span"); badge.className = "acb"; badge.textContent = item.target && item.target.type === "group" ? "グループ" : "専用テンプレ";
     badge.style.background = "var(--neul)"; badge.style.color = "var(--neu)";
     el.appendChild(icon); el.appendChild(label); el.appendChild(badge);
-    el.addEventListener("mousedown", function(){ inp.value=k; acd.classList.remove("show"); showTemplateForQuery(k); });
+    el.addEventListener("mousedown", function(){ inp.value=item.label; acd.classList.remove("show"); openTarget(item.target); });
     acd.appendChild(el);
   });
   if (!ms.length) {
@@ -75,38 +76,48 @@ inp.addEventListener("keydown",function(e){
 function handleEnter() {
   acd.classList.remove("show");
   var q = inp.value.trim(); if (!q) return;
-  if (allKw.some(function(k){ return k.toLowerCase() === q.toLowerCase(); })) showTemplateForQuery(q);
-  else toast("登録済みテンプレートを選択してください","#c05621");
+  var item = routeOptions.find(function(option){ return option.label.toLowerCase() === q.toLowerCase(); });
+  if (item) openTarget(item.target);
+  else showTemplateNotFound();
 }
 
 function schemaFormat(template) {
   return template.schema_format || (template.schema && template.schema.schemaFormat) || "stroke-v1";
 }
 
-function findTemplateByQuery(q, items) {
-  var lower = q.toLowerCase();
-  return items.find(function(item) {
-    return item.label.toLowerCase() === lower || item.full.toLowerCase() === lower;
-  });
+function showTemplateNotFound() {
+  toast("登録済みテンプレートを選択してください", "#c05621");
 }
 
-function showTemplateForQuery(q) {
-  var generic = findTemplateByQuery(q, genericTemplates);
+function showTemplateById(id) {
+  var generic = genericTemplates.find(function(template){ return template.id === id; });
   if (generic) {
     showGeneric(generic);
+    return true;
+  }
+  var strokeIndex = strokeTemplates.findIndex(function(template){ return template.id === id; });
+  if (strokeIndex >= 0) {
+    showStroke(strokeIndex);
+    return true;
+  }
+  showTemplateNotFound();
+  return false;
+}
+
+function openTarget(target) {
+  if (!target || !target.type || !target.id) {
+    showTemplateNotFound();
     return;
   }
-  var stroke = findTemplateByQuery(q, strokeTemplates);
-  if (strokeTemplates.length) {
-    showStroke(stroke ? strokeTemplates.indexOf(stroke) : 0);
+  if (target.type === "template") {
+    showTemplateById(target.id);
     return;
   }
-  var genericStroke = genericTemplates.find(function(item){ return item.category === "stroke"; });
-  if (genericStroke) {
-    showGeneric(genericStroke);
+  if (target.type === "group") {
+    showTemplateGroup(target.id);
     return;
   }
-  toast("登録済みテンプレートを選択してください", "#c05621");
+  showTemplateNotFound();
 }
 
 // ── Stroke template ──
@@ -159,6 +170,101 @@ function showGeneric(template) {
   var card = buildGenericCard(template);
   document.getElementById("ta").appendChild(card);
   currentCard = card;
+}
+
+function readGenericInputState(card) {
+  var values = {};
+  if (!card) return values;
+  card.querySelectorAll(".generic-input").forEach(function(input) {
+    values[input.dataset.sectionId + "." + input.dataset.fieldId] = input.value || "";
+  });
+  return values;
+}
+
+function restoreGenericInputState(card, values) {
+  if (!card || !values) return;
+  card.querySelectorAll(".generic-input").forEach(function(input) {
+    var ref = input.dataset.sectionId + "." + input.dataset.fieldId;
+    var value = values[ref] || "";
+    input.value = value;
+    if (input.type === "hidden") {
+      var selected = value ? value.split("、") : [];
+      var row = input.closest(".nrow");
+      if (row) {
+        row.querySelectorAll(".generic-multi-option input[type='checkbox']").forEach(function(checkbox) {
+          checkbox.checked = selected.indexOf(checkbox.value) >= 0;
+        });
+      }
+    }
+  });
+}
+
+async function showTemplateGroup(groupId) {
+  try {
+    var group = await getTemplateGroup(groupId);
+    if (!group.templates || !group.templates.length) {
+      showTemplateNotFound();
+      return;
+    }
+    document.getElementById("empty").style.display = "none";
+    document.getElementById("ta").innerHTML = "";
+    var card = buildTemplateGroupCard(group);
+    document.getElementById("ta").appendChild(card);
+    currentCard = card.querySelector(".tc");
+  } catch (error) {
+    console.error(error);
+    showTemplateNotFound();
+  }
+}
+
+function buildTemplateGroupCard(group) {
+  var wrap = document.createElement("div");
+  wrap.className = "group-wrap";
+  wrap.dataset.groupId = group.id;
+  if (!currentGroupState[group.id]) currentGroupState[group.id] = {};
+
+  var tabs = document.createElement("div");
+  tabs.className = "subtabs";
+  var body = document.createElement("div");
+  body.className = "group-body";
+  wrap.appendChild(tabs);
+  wrap.appendChild(body);
+
+  var selectedTemplateId = group.templates[0].id;
+
+  function saveCurrentState() {
+    var activeCard = body.querySelector(".tc");
+    if (activeCard && activeCard.dataset.templateId) {
+      currentGroupState[group.id][activeCard.dataset.templateId] = readGenericInputState(activeCard);
+    }
+  }
+
+  function renderSelected(templateId) {
+    saveCurrentState();
+    selectedTemplateId = templateId;
+    body.innerHTML = "";
+    tabs.querySelectorAll(".stab").forEach(function(button) {
+      button.classList.toggle("on", button.dataset.templateId === templateId);
+    });
+    var template = group.templates.find(function(item){ return item.id === templateId; });
+    if (!template) return;
+    var templateCard = buildGenericCard(template);
+    body.appendChild(templateCard);
+    restoreGenericInputState(templateCard, currentGroupState[group.id][templateId]);
+    currentCard = templateCard;
+  }
+
+  group.templates.forEach(function(template) {
+    var button = document.createElement("button");
+    button.className = "stab";
+    button.dataset.templateId = template.id;
+    button.textContent = template.label;
+    button.addEventListener("click", function(){ renderSelected(template.id); });
+    tabs.appendChild(button);
+  });
+
+  renderSelected(selectedTemplateId);
+  return wrap;
 }
 
 function buildGenericCard(template) {
@@ -461,6 +567,17 @@ function uniqueList(items) {
   });
 }
 
+function uniqueRouteOptions(items) {
+  var seen = {};
+  return items.filter(function(item) {
+    if (!item || !item.label || !item.target) return false;
+    var key = item.label.toLowerCase();
+    if (seen[key]) return false;
+    seen[key] = true;
+    return true;
+  });
+}
+
 async function loadSearchKeywords() {
   var apiKeywords = [];
   try {
@@ -468,15 +585,22 @@ async function loadSearchKeywords() {
   } catch (err) {
     console.warn("search keywords fallback", err);
   }
-  allKw = uniqueList(
-    apiKeywords
-      .concat(defaultKeywords)
-      .concat(quickTemplates.map(function(q){ return q.label; }))
-      .concat(strokeTemplates.map(function(st){ return st.label; }))
-      .concat(strokeTemplates.map(function(st){ return st.full; }))
-      .concat(genericTemplates.map(function(st){ return st.label; }))
-      .concat(genericTemplates.map(function(st){ return st.full; }))
+  routeOptions = uniqueRouteOptions(
+    quickTemplates.map(function(q) {
+      return { label: q.label, target: q.target };
+    })
+      .concat(apiKeywords.map(function(item) {
+        if (typeof item === "string") {
+          return { label: item, target: null };
+        }
+        return { label: item.keyword, target: item.target };
+      }))
+      .concat(strokeTemplates.map(function(st){ return { label: st.label, target: { type: "template", id: st.id } }; }))
+      .concat(strokeTemplates.map(function(st){ return { label: st.full, target: { type: "template", id: st.id } }; }))
+      .concat(genericTemplates.map(function(st){ return { label: st.label, target: { type: "template", id: st.id } }; }))
+      .concat(genericTemplates.map(function(st){ return { label: st.full, target: { type: "template", id: st.id } }; }))
   );
+  allKw = uniqueList(routeOptions.map(function(item){ return item.label; }));
 }
 
 // Init

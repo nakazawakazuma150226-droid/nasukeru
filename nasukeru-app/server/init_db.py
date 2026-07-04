@@ -117,15 +117,29 @@ NEURO_COMMON_TEMPLATE = {
     "category": "neuro_common",
 }
 QUICK_TEMPLATES = [
-    {"label": "脳梗塞", "sub": "5パターン専用テンプレ", "action": "stroke"},
-    {"label": "脳卒中共通", "sub": "脳神経共通テンプレ", "action": "neuro_common"},
+    {"label": "脳梗塞", "sub": "5パターン専用テンプレ", "action": "stroke", "target_type": "group", "target_id": "cerebral_infarction"},
+    {"label": "脳卒中共通", "sub": "脳神経共通テンプレ", "action": "neuro_common", "target_type": "template", "target_id": "neuro_common"},
 ]
 SEARCH_KEYWORDS = [
-    {"keyword": "脳梗塞", "template_action": "stroke"},
-    {"keyword": "脳卒中", "template_action": "stroke"},
-    {"keyword": "stroke", "template_action": "stroke"},
-    {"keyword": "脳卒中共通", "template_action": "neuro_common"},
-    {"keyword": "脳神経共通テンプレート", "template_action": "neuro_common"},
+    {"keyword": "脳梗塞", "template_action": "stroke", "target_type": "group", "target_id": "cerebral_infarction"},
+    {"keyword": "脳卒中", "template_action": "stroke", "target_type": "group", "target_id": "cerebral_infarction"},
+    {"keyword": "stroke", "template_action": "stroke", "target_type": "group", "target_id": "cerebral_infarction"},
+    {"keyword": "MCA", "template_action": "mca", "target_type": "template", "target_id": "mca"},
+    {"keyword": "ACA", "template_action": "aca", "target_type": "template", "target_id": "aca"},
+    {"keyword": "PCA", "template_action": "pca", "target_type": "template", "target_id": "pca"},
+    {"keyword": "ラクナ", "template_action": "lacunar", "target_type": "template", "target_id": "lacunar"},
+    {"keyword": "脳幹", "template_action": "brainstem", "target_type": "template", "target_id": "brainstem"},
+    {"keyword": "脳卒中共通", "template_action": "neuro_common", "target_type": "template", "target_id": "neuro_common"},
+    {"keyword": "脳神経共通テンプレート", "template_action": "neuro_common", "target_type": "template", "target_id": "neuro_common"},
+]
+
+TEMPLATE_GROUPS = [
+    {
+        "id": "cerebral_infarction",
+        "label": "脳梗塞",
+        "sub": "5パターン専用テンプレ",
+        "items": ["mca", "aca", "pca", "lacunar", "brainstem"],
+    }
 ]
 
 STROKE_EXTRA_FIELDS = {
@@ -475,6 +489,24 @@ def validate_seed_data():
     keywords = [item["keyword"] for item in SEARCH_KEYWORDS]
     if len(set(keywords)) != len(keywords):
         raise ValueError("duplicate search keyword")
+    group_ids = [item["id"] for item in TEMPLATE_GROUPS]
+    if len(set(group_ids)) != len(group_ids):
+        raise ValueError("duplicate template group")
+    all_template_ids = ids
+    for group in TEMPLATE_GROUPS:
+        validate_template_id(group["id"])
+        for template_id in group["items"]:
+            validate_template_id(template_id)
+            if template_id not in all_template_ids:
+                raise ValueError(f"group {group['id']} references unknown template: {template_id}")
+    for item in QUICK_TEMPLATES:
+        if item["target_type"] not in {"template", "group"}:
+            raise ValueError(f"invalid quick template target type: {item['target_type']}")
+        validate_template_id(item["target_id"])
+    for item in SEARCH_KEYWORDS:
+        if item["target_type"] not in {"template", "group"}:
+            raise ValueError(f"invalid search keyword target type: {item['target_type']}")
+        validate_template_id(item["target_id"])
 
 
 def ensure_schema(conn):
@@ -552,6 +584,25 @@ def ensure_schema(conn):
           display_order INTEGER NOT NULL DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS template_groups (
+          id TEXT PRIMARY KEY,
+          label TEXT NOT NULL,
+          sub TEXT NOT NULL,
+          display_order INTEGER NOT NULL DEFAULT 0,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS template_group_items (
+          group_id TEXT NOT NULL,
+          template_id TEXT NOT NULL,
+          display_order INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (group_id, template_id),
+          FOREIGN KEY (group_id) REFERENCES template_groups(id),
+          FOREIGN KEY (template_id) REFERENCES templates(id)
+        );
+
         CREATE UNIQUE INDEX IF NOT EXISTS idx_rest_options_label
           ON rest_options(label);
 
@@ -560,6 +611,9 @@ def ensure_schema(conn):
 
         CREATE UNIQUE INDEX IF NOT EXISTS idx_search_keywords_keyword
           ON search_keywords(keyword);
+
+        CREATE INDEX IF NOT EXISTS idx_template_group_items_group_id
+          ON template_group_items(group_id, display_order);
 
         CREATE INDEX IF NOT EXISTS idx_template_versions_template_id
           ON template_versions(template_id);
@@ -570,6 +624,10 @@ def ensure_schema(conn):
     )
     ensure_column(conn, "templates", "current_version_id", "INTEGER")
     ensure_column(conn, "templates", "status", "TEXT NOT NULL DEFAULT 'published'")
+    ensure_column(conn, "quick_templates", "target_type", "TEXT")
+    ensure_column(conn, "quick_templates", "target_id", "TEXT")
+    ensure_column(conn, "search_keywords", "target_type", "TEXT")
+    ensure_column(conn, "search_keywords", "target_id", "TEXT")
 
 
 def ensure_column(conn, table, column, definition):
@@ -966,27 +1024,95 @@ def seed_rest_options(conn):
 def seed_quick_templates(conn):
     for order, item in enumerate(QUICK_TEMPLATES, start=1):
         if exists(conn, "SELECT 1 FROM quick_templates WHERE action = ?", (item["action"],)):
+            conn.execute(
+                """
+                UPDATE quick_templates
+                SET label = ?, sub = ?, target_type = ?, target_id = ?, display_order = ?
+                WHERE action = ?
+                """,
+                (
+                    item["label"],
+                    item["sub"],
+                    item["target_type"],
+                    item["target_id"],
+                    order,
+                    item["action"],
+                ),
+            )
             continue
         conn.execute(
             """
-            INSERT INTO quick_templates (label, sub, action, display_order)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO quick_templates (label, sub, action, target_type, target_id, display_order)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (item["label"], item["sub"], item["action"], order),
+            (item["label"], item["sub"], item["action"], item["target_type"], item["target_id"], order),
         )
 
 
 def seed_search_keywords(conn):
     for order, item in enumerate(SEARCH_KEYWORDS, start=1):
         if exists(conn, "SELECT 1 FROM search_keywords WHERE keyword = ?", (item["keyword"],)):
+            conn.execute(
+                """
+                UPDATE search_keywords
+                SET template_action = ?, target_type = ?, target_id = ?, display_order = ?
+                WHERE keyword = ?
+                """,
+                (
+                    item["template_action"],
+                    item["target_type"],
+                    item["target_id"],
+                    order,
+                    item["keyword"],
+                ),
+            )
             continue
         conn.execute(
             """
-            INSERT INTO search_keywords (keyword, template_action, display_order)
-            VALUES (?, ?, ?)
+            INSERT INTO search_keywords (keyword, template_action, target_type, target_id, display_order)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (item["keyword"], item["template_action"], order),
+            (
+                item["keyword"],
+                item["template_action"],
+                item["target_type"],
+                item["target_id"],
+                order,
+            ),
         )
+
+
+def seed_template_groups(conn, now):
+    for group_order, group in enumerate(TEMPLATE_GROUPS, start=1):
+        if exists(conn, "SELECT 1 FROM template_groups WHERE id = ?", (group["id"],)):
+            conn.execute(
+                """
+                UPDATE template_groups
+                SET label = ?, sub = ?, display_order = ?, is_active = 1, updated_at = ?
+                WHERE id = ?
+                """,
+                (group["label"], group["sub"], group_order, now, group["id"]),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO template_groups
+                  (id, label, sub, display_order, is_active, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 1, ?, ?)
+                """,
+                (group["id"], group["label"], group["sub"], group_order, now, now),
+            )
+
+        for item_order, template_id in enumerate(group["items"], start=1):
+            conn.execute(
+                """
+                INSERT INTO template_group_items (group_id, template_id, display_order)
+                VALUES (?, ?, ?)
+                ON CONFLICT(group_id, template_id)
+                DO UPDATE SET display_order = excluded.display_order
+                """,
+                (group["id"], template_id, item_order),
+            )
 
 
 def main():
@@ -1003,6 +1129,7 @@ def main():
         migrate_stroke_templates_to_generic(conn, now)
         migrate_stroke_copy_format_to_compat(conn, now)
         migrate_add_neuro_common_template(conn, now)
+        seed_template_groups(conn, now)
         seed_rest_options(conn)
         seed_quick_templates(conn)
         seed_search_keywords(conn)

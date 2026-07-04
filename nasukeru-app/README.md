@@ -128,6 +128,7 @@ SQLite DB
     - `GET /api/templates/<id>/versions/<version_id>`
     - `GET /api/templates/<id>/logs`
     - `GET /api/quick-templates`
+    - `GET /api/template-groups/<id>`
     - `GET /api/rest-options`
     - `GET /api/search-keywords`
     - `GET /api/migrations`
@@ -171,6 +172,8 @@ SQLite DB
 - `copy_format` の参照先は `generic-v1` schema に存在する field のみ許可する
 - 複雑な条件分岐や高度な整形は次フェーズで設計・実装する
 - 管理画面の新規追加は `generic-v1` 固定とし、`stroke-v1` は旧バージョン・後方互換用として残す
+- 通常画面のクイックリストと検索は `target` で明示的に `template` または `group` を開く
+- 脳梗塞5テンプレートは `cerebral_infarction` groupとして表示し、group内タブは既存generic rendererを再利用する
 
 脳梗塞5テンプレートは `generic-v1` へ移行済みです。共通項目に加えて、MCA/ACA/PCA/ラクナ/脳幹ごとの個別観察項目を空欄フィールドとして持ちます。既存の `stroke-v1` 版は履歴に残し、DB初期化時のマイグレーション `004` で新バージョンとして適用します。マイグレーション `005` では、既存stroke項目だけを入力した場合に旧 `stroke-v1` のコピー出力と一致する `copy_format_json` へ更新します。
 
@@ -359,6 +362,7 @@ APIの返却形は既存画面に合わせて維持しています。
 - `GET /api/templates`
 - `GET /api/templates/<id>`
 - `GET /api/quick-templates`
+- `GET /api/template-groups/<id>`
 - `GET /api/rest-options`
 - `GET /api/search-keywords`
 

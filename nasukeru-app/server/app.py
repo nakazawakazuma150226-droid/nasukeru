@@ -801,12 +801,25 @@ def get_quick_templates():
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT label, sub, action
+            SELECT label, sub, action, target_type, target_id
             FROM quick_templates
             ORDER BY display_order, label
             """
         ).fetchall()
-    return jsonify([dict(row) for row in rows])
+    return jsonify(
+        [
+            {
+                "label": row["label"],
+                "sub": row["sub"],
+                "action": row["action"],
+                "target": {
+                    "type": row["target_type"] or "template",
+                    "id": row["target_id"] or row["action"],
+                },
+            }
+            for row in rows
+        ]
+    )
 
 
 @app.get("/api/search-keywords")
@@ -814,12 +827,64 @@ def get_search_keywords():
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT keyword
+            SELECT keyword, template_action, target_type, target_id
             FROM search_keywords
             ORDER BY display_order, keyword
             """
         ).fetchall()
-    return jsonify([row["keyword"] for row in rows])
+    return jsonify(
+        [
+            {
+                "keyword": row["keyword"],
+                "template_action": row["template_action"],
+                "target": {
+                    "type": row["target_type"] or "template",
+                    "id": row["target_id"] or row["template_action"],
+                },
+            }
+            for row in rows
+        ]
+    )
+
+
+@app.get("/api/template-groups/<group_id>")
+def get_template_group(group_id):
+    with connect() as conn:
+        group = conn.execute(
+            """
+            SELECT id, label, sub
+            FROM template_groups
+            WHERE id = ? AND is_active = 1
+            """,
+            (group_id,),
+        ).fetchone()
+        if group is None:
+            return jsonify({"error": "template group not found"}), 404
+        rows = conn.execute(
+            """
+            SELECT
+              t.id,
+              t.label,
+              t.full,
+              t.category,
+              COALESCE(v.schema_json, t.schema_json) AS schema_json,
+              v.copy_format_json AS copy_format_json
+            FROM template_group_items gi
+            JOIN templates t ON t.id = gi.template_id
+            LEFT JOIN template_versions v ON v.id = t.current_version_id
+            WHERE gi.group_id = ? AND t.is_active = 1
+            ORDER BY gi.display_order, t.display_order, t.label
+            """,
+            (group_id,),
+        ).fetchall()
+    return jsonify(
+        {
+            "id": group["id"],
+            "label": group["label"],
+            "sub": group["sub"],
+            "templates": [normal_template_from_row(row) for row in rows],
+        }
+    )
 
 
 @app.get("/api/migrations")

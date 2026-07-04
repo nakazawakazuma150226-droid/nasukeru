@@ -32,3 +32,46 @@ Gate:
 Next:
 
 - Phase 1A Template Group DB / API Contract
+
+## Phase 1: Template Group / Explicit Routing
+
+Status: PASS
+
+Base: `be594f8`
+
+Implemented:
+
+- `template_groups` / `template_group_items` を追加
+- `quick_templates` / `search_keywords` に `target_type` / `target_id` を追加
+- `GET /api/quick-templates` と `GET /api/search-keywords` が `target` を返す
+- `GET /api/template-groups/<id>` を追加
+- `cerebral_infarction` groupを追加し、MCA / ACA / PCA / ラクナ / 脳幹を順序付きで紐づけ
+- 通常画面に `openTarget()` を追加
+- label文字列推測とstroke category fallbackを通常routingから削除
+- 脳梗塞groupを既存generic rendererのタブUIとして表示
+- group内タブ切替時の入力値をメモリ上で保持
+
+Tests:
+
+- Python compile PASS
+- JS syntax check PASS
+- copy renderer unit test PASS
+- smoke test PASS
+- Browser manual check PASS
+  - 脳梗塞 quick item -> 5タブ表示
+  - 脳卒中共通 quick item -> `neuro_common` 単体表示
+  - groupタブ切替後にMCA入力値が復元される
+
+Review:
+
+- Critical: 0
+- High: 0
+- Medium: 0
+
+Gate:
+
+- PASS
+
+Next:
+
+- Phase 2 Optimistic Template Version Concurrency

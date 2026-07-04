@@ -195,6 +195,9 @@ GENERIC_V2_COPY_FORMAT = {
 }
 
 
+JCS_OPTION_VALUES = ["\u2160-1", "\u2160-2", "\u2160-3", "\u2161-10", "\u2161-20", "\u2161-30", "\u2162-100", "\u2162-200", "\u2162-300"]
+
+
 def assert_status(response, expected_status, label, failures):
     status = response.status_code
     print(f"{status:3} {label}")
@@ -427,6 +430,21 @@ def run_write_tests(failures):
                     for section in item["schema"]["sections"]
                 ),
                 "GET /api/templates/mca includes MCA-specific generic fields",
+                failures,
+            )
+            assert_json_contains(
+                mca_response,
+                lambda item: any(
+                    section["id"] == "vitals"
+                    and any(
+                        field["id"] == "jcs"
+                        and field["type"] == "select"
+                        and [option["value"] for option in field["options"]] == JCS_OPTION_VALUES
+                        for field in section["fields"]
+                    )
+                    for section in item["schema"]["sections"]
+                ),
+                "GET /api/templates/mca exposes JCS select options",
                 failures,
             )
             mca_admin_response = client.get("/api/admin/templates/mca")

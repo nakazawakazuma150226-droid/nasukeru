@@ -109,7 +109,7 @@ STROKE_TYPES = [
 ]
 
 REST_OPTIONS = ["ベッド上安静", "ベッド上フリー", "病棟内フリー", "院内フリー", "リハビリに準ずる"]
-JCS_OPTIONS = ["0", "I-1", "I-2", "I-3", "II-10", "II-20", "II-30", "III-100", "III-200", "III-300"]
+JCS_OPTIONS = ["\u2160-1", "\u2160-2", "\u2160-3", "\u2161-10", "\u2161-20", "\u2161-30", "\u2162-100", "\u2162-200", "\u2162-300"]
 NEURO_COMMON_TEMPLATE = {
     "id": "neuro_common",
     "label": "脳卒中共通",
@@ -214,7 +214,7 @@ def build_generic_stroke_schema(template):
             "label": "バイタル",
             "displayOrder": 1,
             "fields": [
-                generic_field("jcs", "JCS", requiredWarning=True),
+                generic_field("jcs", "JCS", "select", options=JCS_OPTIONS, requiredWarning=True),
                 generic_field("t", "T", unit="℃", requiredWarning=True),
                 generic_field("bp", "BP", unit="mmHg", requiredWarning=True),
                 generic_field("hr", "HR", requiredWarning=True),
@@ -1066,6 +1066,233 @@ def migrate_add_neuro_common_template(conn, now):
     record_migration(conn, "006", "add neuro common template", now)
 
 
+def migrate_stroke_jcs_to_select(conn, now):
+    if migration_applied(conn, "007"):
+        return
+
+    for template in STROKE_TYPES:
+        row = conn.execute(
+            """
+            SELECT
+              t.id,
+              t.current_version_id,
+              COALESCE(v.schema_json, t.schema_json) AS current_schema_json,
+              v.copy_format_json AS current_copy_format_json
+            FROM templates t
+            LEFT JOIN template_versions v ON v.id = t.current_version_id
+            WHERE t.id = ?
+            """,
+            (template["id"],),
+        ).fetchone()
+        if row is None:
+            continue
+
+        current_schema = json.loads(row[2])
+        if current_schema.get("schemaFormat") != "generic-v1":
+            continue
+
+        schema = build_generic_stroke_schema(template)
+        copy_format = json.loads(row[3]) if row[3] else build_generic_stroke_copy_format(template)
+        schema_json = json.dumps(schema, ensure_ascii=False)
+        copy_format_json = json.dumps(copy_format, ensure_ascii=False) if copy_format is not None else None
+        version_number = conn.execute(
+            """
+            SELECT COALESCE(MAX(version_number), 0) + 1
+            FROM template_versions
+            WHERE template_id = ?
+            """,
+            (template["id"],),
+        ).fetchone()[0]
+        cursor = conn.execute(
+            """
+            INSERT INTO template_versions
+              (template_id, version_number, schema_json, copy_format_json,
+               change_summary, change_reason, created_by, created_at, approved_by, approved_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'system', ?, 'system', ?)
+            """,
+            (
+                template["id"],
+                version_number,
+                schema_json,
+                copy_format_json,
+                "Change JCS to selectable options",
+                "Use fixed JCS choices on stroke templates",
+                now,
+                now,
+            ),
+        )
+        version_id = cursor.lastrowid
+        conn.execute(
+            """
+            UPDATE template_versions
+            SET status = 'published', approved_by = 'system', approved_at = ?
+            WHERE id = ?
+            """,
+            (now, version_id),
+        )
+        conn.execute(
+            """
+            UPDATE templates
+            SET schema_json = ?, current_version_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (schema_json, version_id, now, template["id"]),
+        )
+        conn.execute(
+            """
+            UPDATE template_versions
+            SET status = 'retired'
+            WHERE template_id = ? AND status = 'published' AND id <> ?
+            """,
+            (template["id"], version_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO template_audit_logs
+              (template_id, version_id, action, actor_name, acted_at, before_json, after_json, reason)
+            VALUES (?, ?, 'migrate', 'system', ?, ?, ?, ?)
+            """,
+            (
+                template["id"],
+                version_id,
+                now,
+                json.dumps(
+                    {
+                        "schema": current_schema,
+                        "copy_format": copy_format,
+                    },
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {
+                        "schema": schema,
+                        "copy_format": copy_format,
+                    },
+                    ensure_ascii=False,
+                ),
+                "Change stroke JCS field to fixed select choices",
+            ),
+        )
+
+    record_migration(conn, "007", "change stroke jcs to select", now)
+
+
+def replace_jcs_fields(schema):
+    changed = False
+    for section in schema.get("sections", []):
+        for field in section.get("fields", []):
+            if field.get("id") != "jcs":
+                continue
+            if field.get("type") == "select" and field.get("options") == JCS_OPTIONS:
+                continue
+            field["type"] = "select"
+            field["options"] = JCS_OPTIONS
+            changed = True
+    return changed
+
+
+def migrate_jcs_option_values(conn, now):
+    if migration_applied(conn, "008"):
+        return
+
+    target_ids = [template["id"] for template in STROKE_TYPES] + [NEURO_COMMON_TEMPLATE["id"]]
+    for template_id in target_ids:
+        row = conn.execute(
+            """
+            SELECT
+              t.id,
+              t.current_version_id,
+              COALESCE(v.schema_json, t.schema_json) AS current_schema_json,
+              v.copy_format_json AS current_copy_format_json
+            FROM templates t
+            LEFT JOIN template_versions v ON v.id = t.current_version_id
+            WHERE t.id = ?
+            """,
+            (template_id,),
+        ).fetchone()
+        if row is None:
+            continue
+
+        current_schema = json.loads(row[2])
+        if current_schema.get("schemaFormat") not in ("generic-v1", "generic-v2"):
+            continue
+        schema = json.loads(json.dumps(current_schema, ensure_ascii=False))
+        if not replace_jcs_fields(schema):
+            continue
+
+        copy_format = json.loads(row[3]) if row[3] else None
+        schema_json = json.dumps(schema, ensure_ascii=False)
+        copy_format_json = json.dumps(copy_format, ensure_ascii=False) if copy_format is not None else None
+        version_number = conn.execute(
+            """
+            SELECT COALESCE(MAX(version_number), 0) + 1
+            FROM template_versions
+            WHERE template_id = ?
+            """,
+            (template_id,),
+        ).fetchone()[0]
+        cursor = conn.execute(
+            """
+            INSERT INTO template_versions
+              (template_id, version_number, schema_json, copy_format_json,
+               change_summary, change_reason, created_by, created_at, approved_by, approved_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'system', ?, 'system', ?)
+            """,
+            (
+                template_id,
+                version_number,
+                schema_json,
+                copy_format_json,
+                "Fix JCS option values",
+                "Use fixed Japanese roman numeral JCS choices",
+                now,
+                now,
+            ),
+        )
+        version_id = cursor.lastrowid
+        conn.execute(
+            """
+            UPDATE template_versions
+            SET status = 'published', approved_by = 'system', approved_at = ?
+            WHERE id = ?
+            """,
+            (now, version_id),
+        )
+        conn.execute(
+            """
+            UPDATE templates
+            SET schema_json = ?, current_version_id = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (schema_json, version_id, now, template_id),
+        )
+        conn.execute(
+            """
+            UPDATE template_versions
+            SET status = 'retired'
+            WHERE template_id = ? AND status = 'published' AND id <> ?
+            """,
+            (template_id, version_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO template_audit_logs
+              (template_id, version_id, action, actor_name, acted_at, before_json, after_json, reason)
+            VALUES (?, ?, 'migrate', 'system', ?, ?, ?, ?)
+            """,
+            (
+                template_id,
+                version_id,
+                now,
+                json.dumps({"schema": current_schema, "copy_format": copy_format}, ensure_ascii=False),
+                json.dumps({"schema": schema, "copy_format": copy_format}, ensure_ascii=False),
+                "Fix JCS option values",
+            ),
+        )
+
+    record_migration(conn, "008", "fix jcs option values", now)
+
+
 def seed_rest_options(conn):
     for order, label in enumerate(REST_OPTIONS, start=1):
         if exists(conn, "SELECT 1 FROM rest_options WHERE label = ?", (label,)):
@@ -1210,6 +1437,8 @@ def main():
         migrate_stroke_templates_to_generic(conn, now)
         migrate_stroke_copy_format_to_compat(conn, now)
         migrate_add_neuro_common_template(conn, now)
+        migrate_stroke_jcs_to_select(conn, now)
+        migrate_jcs_option_values(conn, now)
         normalize_template_version_statuses(conn)
         seed_template_groups(conn, now)
         seed_rest_options(conn)

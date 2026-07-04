@@ -304,12 +304,14 @@ function renderAdminRows() {
     if (!item.is_active) tr.className = "admin-row-muted";
 
     var status = document.createElement("td");
+    status.dataset.label = "状態";
     var badge = document.createElement("span");
     badge.className = "admin-status " + (item.is_active ? "active" : "inactive");
     badge.textContent = item.is_active ? "有効" : "削除済み";
     status.appendChild(badge);
 
     var name = document.createElement("td");
+    name.dataset.label = "テンプレート";
     var label = document.createElement("div");
     label.className = "admin-template-label";
     label.textContent = item.label;
@@ -320,16 +322,20 @@ function renderAdminRows() {
     name.appendChild(full);
 
     var category = document.createElement("td");
+    category.dataset.label = "分類";
     category.textContent = item.category;
     if (item.schema_format) category.textContent += " / " + item.schema_format;
 
     var version = document.createElement("td");
+    version.dataset.label = "版";
     version.textContent = item.current_version_number ? "v" + item.current_version_number : "-";
 
     var updated = document.createElement("td");
+    updated.dataset.label = "更新日時";
     updated.textContent = formatDate(item.updated_at);
 
     var actions = document.createElement("td");
+    actions.dataset.label = "操作";
     actions.className = "admin-actions";
     if (item.is_active) {
       actions.appendChild(button("編集", "btn bg admin-row-btn", function(){ openEditModal(item); }));

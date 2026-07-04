@@ -170,6 +170,14 @@ function showGeneric(template) {
   var card = buildGenericCard(template);
   document.getElementById("ta").appendChild(card);
   currentCard = card;
+  scrollTemplateIntoView(card);
+}
+
+function scrollTemplateIntoView(card) {
+  if (!card || !window.matchMedia("(max-width: 820px)").matches) return;
+  window.requestAnimationFrame(function() {
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 
 function readGenericInputState(card) {
@@ -198,6 +206,7 @@ async function showTemplateGroup(groupId) {
     var card = buildTemplateGroupCard(group);
     document.getElementById("ta").appendChild(card);
     currentCard = card.querySelector(".tc");
+    scrollTemplateIntoView(card);
   } catch (error) {
     console.error(error);
     showTemplateNotFound();
@@ -262,9 +271,9 @@ function buildGenericCard(template) {
   div.copyFormat = template.copy_format || null;
 
   var hdr = document.createElement("div"); hdr.className = "tch";
-  var bdg = document.createElement("span"); bdg.className = "bdg bsav"; bdg.textContent = "可変";
+  var bdg = document.createElement("span"); bdg.className = "bdg bsav"; bdg.textContent = "記録";
   var ttl = document.createElement("span"); ttl.className = "stroke-title"; ttl.textContent = template.full;
-  var sub = document.createElement("span"); sub.className = "stroke-sub"; sub.textContent = schemaFormat(template);
+  var sub = document.createElement("span"); sub.className = "stroke-sub"; sub.textContent = template.label || "";
   hdr.appendChild(bdg); hdr.appendChild(ttl); hdr.appendChild(sub);
 
   var body = document.createElement("div"); body.className = "tcb";

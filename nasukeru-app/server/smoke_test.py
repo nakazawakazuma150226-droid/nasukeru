@@ -80,7 +80,10 @@ GENERIC_SCHEMA = {
                     "id": "status",
                     "label": "Status",
                     "type": "select",
-                    "options": ["none", "present"],
+                    "options": [
+                        {"value": "none", "label": "なし"},
+                        {"value": "present", "label": "あり"},
+                    ],
                     "allowEmpty": True,
                 },
             ],
@@ -573,6 +576,7 @@ def run_write_tests(failures):
                 generic_detail,
                 lambda item: item["schema_format"] == "generic-v1"
                 and item["schema"]["schemaFormat"] == "generic-v1"
+                and item["schema"]["sections"][0]["fields"][1]["options"][0] == {"value": "none", "label": "なし"}
                 and item["copy_format"]["format"] == "text-v1"
                 and item["copy_format"]["lines"][2]["omitIfAllBlank"] == ["basic.status"]
                 and item["copy_format"]["lines"][3]["splitLinesFrom"] == "basic.status",
@@ -618,6 +622,7 @@ def run_write_tests(failures):
             assert_json_contains(
                 extended_detail,
                 lambda item: item["schema"]["sections"][0]["fields"][0]["type"] == "multi_select"
+                and item["schema"]["sections"][0]["fields"][0]["options"][0] == {"value": "headache", "label": "headache"}
                 and item["schema"]["sections"][0]["fields"][1]["type"] == "number"
                 and item["schema"]["sections"][0]["fields"][1]["unit"] == "ml",
                 "GET /api/admin/templates/generic_extended returns extended field types",
@@ -665,6 +670,31 @@ def run_write_tests(failures):
                 client.post("/api/templates", json=invalid_multi_select_payload, headers=LOCAL_HEADERS),
                 400,
                 "POST /api/templates generic-v1 invalid multi_select options",
+                failures,
+            )
+
+            duplicate_option_payload = copy.deepcopy(generic_payload)
+            duplicate_option_payload["id"] = "bad_duplicate_option"
+            duplicate_option_payload["schema"]["sections"][0]["fields"][1]["options"] = [
+                {"value": "same", "label": "One"},
+                {"value": "same", "label": "Two"},
+            ]
+            assert_status(
+                client.post("/api/templates", json=duplicate_option_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v1 duplicate option value",
+                failures,
+            )
+
+            unknown_option_key_payload = copy.deepcopy(generic_payload)
+            unknown_option_key_payload["id"] = "bad_option_key"
+            unknown_option_key_payload["schema"]["sections"][0]["fields"][1]["options"] = [
+                {"value": "none", "label": "None", "code": "x"}
+            ]
+            assert_status(
+                client.post("/api/templates", json=unknown_option_key_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v1 unknown option key",
                 failures,
             )
 

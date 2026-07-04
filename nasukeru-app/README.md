@@ -161,6 +161,9 @@ SQLite DB
 - `schemaFormat` が無い既存テンプレートは `stroke-v1` として扱う
 - `generic-v1` は `sections` と `fields` を持つ可変schemaとして保存できる
 - `generic-v1` の field type は `text` / `textarea` / `select` / `multi_select` / `number`
+- `select` / `multi_select` の `options` は `{ "value": "...", "label": "..." }` を基本形とする
+- 旧来の文字列 `options` も受け付けるが、API返却時は `{ "value": 同じ値, "label": 同じ値 }` に正規化する
+- 通常画面の選択UIは内部値に `value`、表示とコピー出力に `label` を使う
 - 通常入力画面は `stroke-v1` を従来タブUI、`generic-v1` を section/field ベースの動的UIとして表示する
 - `generic-v1` の入力初期値は安全側で空欄にする
 - `generic-v1` のコピー出力は `copy_format_json` の `text-v1` 形式を優先する

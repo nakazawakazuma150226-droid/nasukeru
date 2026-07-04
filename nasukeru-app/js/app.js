@@ -302,6 +302,22 @@ function sortedByDisplayOrder(items) {
   });
 }
 
+function optionValue(option) {
+  return option && typeof option === "object" ? option.value : option;
+}
+
+function optionLabel(option) {
+  return option && typeof option === "object" ? option.label : option;
+}
+
+function optionLabelMap(options) {
+  var labels = {};
+  (options || []).forEach(function(option) {
+    labels[optionValue(option)] = optionLabel(option);
+  });
+  return labels;
+}
+
 function renderGenericBody(body, schema) {
   sortedByDisplayOrder(schema.sections).forEach(function(section) {
     var sec = makeSec(section.label);
@@ -317,7 +333,9 @@ function applyGenericInputMeta(input, section, field) {
   input.dataset.sectionLabel = section.label;
   input.dataset.fieldId = field.id;
   input.dataset.fieldLabel = field.label;
+  input.dataset.fieldType = field.type;
   input.dataset.requiredWarning = field.requiredWarning ? "true" : "false";
+  input.genericOptionLabels = optionLabelMap(field.options);
 }
 
 function makeGenericField(section, field) {
@@ -337,8 +355,8 @@ function makeGenericField(section, field) {
     input.appendChild(emptyOpt);
     (field.options || []).forEach(function(opt) {
       var option = document.createElement("option");
-      option.value = opt;
-      option.textContent = opt;
+      option.value = optionValue(opt);
+      option.textContent = optionLabel(opt);
       input.appendChild(option);
     });
   } else if (field.type === "multi_select") {
@@ -354,9 +372,9 @@ function makeGenericField(section, field) {
       item.className = "generic-multi-option";
       var checkbox = document.createElement("input");
       checkbox.type = "checkbox";
-      checkbox.value = opt;
+      checkbox.value = optionValue(opt);
       var text = document.createElement("span");
-      text.textContent = opt;
+      text.textContent = optionLabel(opt);
       checkbox.addEventListener("change", function() {
         var values = [];
         group.querySelectorAll("input[type='checkbox']:checked").forEach(function(checked) {

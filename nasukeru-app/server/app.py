@@ -58,7 +58,7 @@ def connect():
 
 def template_from_row(row):
     schema = json.loads(row["schema_json"])
-    validate_db_template_schema(schema)
+    schema = normalize_db_template_schema(schema)
     if get_schema_format(schema) != "stroke-v1":
         raise TemplateSchemaError("normal template API supports stroke-v1 only")
     return {
@@ -74,7 +74,7 @@ def template_from_row(row):
 
 def normal_template_from_row(row):
     schema = json.loads(row["schema_json"])
-    validate_db_template_schema(schema)
+    schema = normalize_db_template_schema(schema)
     fmt = get_schema_format(schema)
     if fmt == "stroke-v1":
         return {
@@ -113,7 +113,7 @@ def version_from_row(row, include_schema=False):
     }
     if include_schema:
         schema = parse_json_value(row["schema_json"])
-        validate_db_template_schema(schema)
+        schema = normalize_db_template_schema(schema)
         version["schema"] = schema
         version["copy_format"] = parse_json_value(row["copy_format_json"])
     return version
@@ -139,6 +139,13 @@ def audit_log_from_row(row):
 def validate_db_template_schema(schema):
     try:
         normalize_schema(schema)
+    except SchemaValidationError as error:
+        raise TemplateSchemaError(str(error)) from error
+
+
+def normalize_db_template_schema(schema):
+    try:
+        return normalize_schema(schema)
     except SchemaValidationError as error:
         raise TemplateSchemaError(str(error)) from error
 
@@ -266,7 +273,7 @@ def fetch_template_state(conn, template_id):
 
 def admin_template_detail_from_row(row):
     schema = parse_json_value(row["current_schema_json"])
-    validate_db_template_schema(schema)
+    schema = normalize_db_template_schema(schema)
     return {
         **template_summary_from_row(row),
         "schema": schema,

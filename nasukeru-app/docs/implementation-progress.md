@@ -110,3 +110,44 @@ Gate:
 Next:
 
 - Phase 3 Option Value / Label Separation
+
+## Phase 3: Option Value / Label Separation
+
+Status: PASS
+
+Base: `4ea663e`
+
+Implemented:
+
+- `select` / `multi_select` の `options` で `{ value, label }` 形式を受け付ける
+- 旧string optionは互換として受け付け、API返却時に `{ value: 文字列, label: 文字列 }` へ正規化
+- duplicate `value`、blank `value` / `label`、未知option keyを拒否
+- 通常画面のselect / checkboxはDOM内部値に `value`、表示に `label` を使用
+- コピー出力では内部 `value` ではなく `label` に変換して出力
+- README / handoff にoption契約とCondition Engine前提を追記
+
+Tests:
+
+- Python compile PASS
+- JS syntax check PASS
+- copy renderer unit test PASS
+- smoke test PASS
+- Browser manual check PASS
+  - selectのDOM valueが `oxygen`
+  - select表示とコピー出力がlabel
+  - multi_select hidden valueが `nausea`
+  - multi_selectコピー出力がlabel
+
+Review:
+
+- Critical: 0
+- High: 0
+- Medium: 0
+
+Gate:
+
+- PASS
+
+Next:
+
+- Phase 4 Typed Value State

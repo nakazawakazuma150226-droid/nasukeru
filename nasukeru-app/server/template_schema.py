@@ -87,6 +87,30 @@ def require_optional_number(obj, key, field):
         raise SchemaValidationError(f"{field}.{key} must be a number")
 
 
+def normalize_option(option, field):
+    if isinstance(option, str):
+        value = require_text(option, field)
+        return {"value": value, "label": value}
+    require_object(option, field)
+    reject_unknown_keys(option, ("value", "label"), field)
+    return {
+        "value": require_text(option.get("value"), f"{field}.value"),
+        "label": require_text(option.get("label"), f"{field}.label"),
+    }
+
+
+def validate_options(options, field):
+    if not isinstance(options, list):
+        raise SchemaValidationError(f"{field} must be an array")
+    used_values = set()
+    for index, option in enumerate(options):
+        normalized = normalize_option(option, f"{field}[{index}]")
+        value = normalized["value"]
+        if value in used_values:
+            raise SchemaValidationError(f"{field}[{index}].value is duplicated: {value}")
+        used_values.add(value)
+
+
 def validate_string_map(obj, keys, field):
     require_keys(obj, keys, field)
     for key in keys:
@@ -195,14 +219,9 @@ def validate_generic_field(field, section_field, used_ids):
         options = field["options"]
         if not isinstance(options, list) or not options:
             raise SchemaValidationError(f"{section_field}.options must be a non-empty array")
-        for index, option in enumerate(options):
-            require_string(option, f"{section_field}.options[{index}]")
+        validate_options(options, f"{section_field}.options")
     elif "options" in field:
-        options = field["options"]
-        if not isinstance(options, list):
-            raise SchemaValidationError(f"{section_field}.options must be an array")
-        for index, option in enumerate(options):
-            require_string(option, f"{section_field}.options[{index}]")
+        validate_options(field["options"], f"{section_field}.options")
 
 
 def validate_generic_v1_schema(schema):
@@ -284,9 +303,15 @@ def normalize_generic_v1_schema(schema):
     for section in schema["sections"]:
         normalized_fields = []
         for field in section["fields"]:
+            normalized_field = dict(field)
+            if "options" in normalized_field:
+                normalized_field["options"] = [
+                    normalize_option(option, f"schema.sections[].fields[].options[{index}]")
+                    for index, option in enumerate(normalized_field["options"])
+                ]
             normalized_fields.append(
                 ordered_with_known_keys(
-                    field,
+                    normalized_field,
                     (
                         "id",
                         "label",

@@ -109,7 +109,7 @@ function buildGenericCopyText() {
       currentSection = section;
     }
     var label = input.dataset.fieldLabel || "入力項目";
-    lines.push(label + "：" + (input.value || "__"));
+    lines.push(label + "：" + (genericInputValueForCopy(input) || "__"));
   });
 
   document.getElementById("prev").textContent = lines.join("\n");
@@ -118,9 +118,30 @@ function buildGenericCopyText() {
 function collectGenericValues() {
   var values = {};
   currentCopyCard.querySelectorAll(".generic-input").forEach(function(input) {
-    values[input.dataset.sectionId + "." + input.dataset.fieldId] = input.value || "";
+    values[input.dataset.sectionId + "." + input.dataset.fieldId] = genericInputValueForCopy(input);
   });
   return values;
+}
+
+function genericOptionLabel(input, value) {
+  var labels = input.genericOptionLabels || {};
+  return labels[value] || value;
+}
+
+function genericInputValueForCopy(input) {
+  var raw = input.value || "";
+  if (!raw) return "";
+  if (input.dataset.fieldType === "multi_select") {
+    return raw.split("、").filter(function(value) {
+      return value;
+    }).map(function(value) {
+      return genericOptionLabel(input, value);
+    }).join("、");
+  }
+  if (input.dataset.fieldType === "select") {
+    return genericOptionLabel(input, raw);
+  }
+  return raw;
 }
 
 function buildGenericTemplateCopyText(copyFormat) {

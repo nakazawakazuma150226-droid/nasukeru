@@ -78,3 +78,21 @@ test("uses showIf with condition values", () => {
     "Status: stable"
   );
 });
+
+test("returns structured render result with unresolved refs", () => {
+  const copyFormat = {
+    format: "text-v1",
+    lines: [
+      "JCS{{vitals.jcs}}",
+      { text: "Hidden {{vitals.hidden}}", omitIfAllBlank: ["vitals.hidden"] },
+      "SpO2{{vitals.spo2}}",
+    ],
+  };
+  const result = renderer.renderGenericTemplateCopyResult(copyFormat, {
+    "vitals.jcs": "0",
+    "vitals.spo2": "",
+  });
+  assert.equal(result.text, "JCS0\nSpO2__");
+  assert.deepEqual(result.unresolvedRefs, ["vitals.spo2"]);
+  assert.deepEqual(result.warnings, []);
+});

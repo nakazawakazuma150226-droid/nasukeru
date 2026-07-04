@@ -32,6 +32,9 @@ nasukeru-app/
   js/
     templates.js
     field-meta.js
+    generic-values.js
+    condition-engine.js
+    safety-rules.js
     validation.js
     copy-renderer.js
     copy-format.js
@@ -39,6 +42,9 @@ nasukeru-app/
     admin.js
   tests/
     copy-renderer.test.js
+    generic-values.test.js
+    condition-engine.test.js
+    safety-rules.test.js
   server/
     app.py
     init_db.py
@@ -179,7 +185,11 @@ SQLite DB
 - `generic-v2` の条件式は `eq` / `neq` / `in` / `not_in` / `contains` / `gt` / `gte` / `lt` / `lte` / `is_blank` / `and` / `or` / `not` をサポートする
 - `visibleIf` はfield表示、`requiredIf` は未入力警告、copy line の `showIf` はコピー出力行の表示条件に使う
 - 非表示になったfieldの値はclearし、hidden値がcopyや未入力警告に漏れないようにする
-- より高度な医療安全ルールや警告レイヤーは次フェーズで設計・実装する
+- `blankPolicy` は `allow` / `warn` / `block` をサポートする。`block` はコピー不可、`warn` は確認後コピー可能
+- `hardRange` は入力仕様上の範囲外としてblock、`warningRange` は確認対象としてwarnにする
+- `copy-renderer` は `{ text, unresolvedRefs, warnings }` の構造化結果も返せる
+- テンプレート更新時はfield削除、`blankPolicy`緩和、condition変更、hardRange緩和、copy行削除を高リスク変更としてレスポンスと監査ログに残す
+- より高度な医療安全ルールは次フェーズ以降で拡張する
 - 管理画面の新規追加は `generic-v1` 固定とし、`stroke-v1` は旧バージョン・後方互換用として残す
 - 通常画面のクイックリストと検索は `target` で明示的に `template` または `group` を開く
 - 脳梗塞5テンプレートは `cerebral_infarction` groupとして表示し、group内タブは既存generic rendererを再利用する
@@ -287,10 +297,10 @@ py -3.10 server\app.py
 py -3.10 server\smoke_test.py
 ```
 
-コピー出力rendererの単体テスト:
+JS単体テスト:
 
 ```powershell
-& 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --test tests\copy-renderer.test.js
+& 'C:\Users\kazum\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --test tests\copy-renderer.test.js tests\generic-values.test.js tests\condition-engine.test.js tests\safety-rules.test.js
 ```
 
 ヘルスチェックだけ確認する場合:

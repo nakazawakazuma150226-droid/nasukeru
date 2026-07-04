@@ -324,8 +324,11 @@ function applyGenericInputMeta(input, section, field) {
   input.dataset.fieldLabel = field.label;
   input.dataset.fieldType = field.type;
   input.dataset.requiredWarning = field.requiredWarning ? "true" : "false";
+  input.dataset.blankPolicy = field.blankPolicy || "";
   input.genericOptionLabels = optionLabelMap(field.options);
   input.genericRequiredIf = field.requiredIf || null;
+  input.genericHardRange = field.hardRange || null;
+  input.genericWarningRange = field.warningRange || null;
 }
 
 function makeGenericField(section, field) {

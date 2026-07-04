@@ -1,5 +1,6 @@
 // ── Copy output ──
 var currentCopyCard = null;
+var currentCopySafetyResult = { blocks: [], warnings: [] };
 function openCov(card) {
   currentCopyCard = card;
   buildCopyText();
@@ -9,7 +10,8 @@ function closeCov() { document.getElementById("cov").classList.remove("show"); c
 
 function buildCopyText() {
   if (!currentCopyCard) return;
-  renderMissingWarning(getMissingRequiredItems(currentCopyCard));
+  currentCopySafetyResult = getSafetyValidationResult(currentCopyCard);
+  renderSafetyValidation(currentCopySafetyResult);
   if (currentCopyCard.dataset.schemaFormat === "generic-v1" || currentCopyCard.dataset.schemaFormat === "generic-v2") {
     buildGenericCopyText();
     return;
@@ -141,10 +143,20 @@ function genericInputValueForCopy(input) {
 function buildGenericTemplateCopyText(copyFormat) {
   var values = collectGenericValues();
   var conditionValues = collectGenericConditionValues();
-  document.getElementById("prev").textContent = NasukeruCopyRenderer.renderGenericTemplateCopyText(copyFormat, values, conditionValues);
+  var result = NasukeruCopyRenderer.renderGenericTemplateCopyResult(copyFormat, values, conditionValues);
+  document.getElementById("prev").textContent = result.text;
 }
 
 function doCopy() {
+  var blocks = (currentCopySafetyResult && currentCopySafetyResult.blocks) || [];
+  var warnings = (currentCopySafetyResult && currentCopySafetyResult.warnings) || [];
+  if (blocks.length) {
+    toast("修正が必要な項目があるためコピーできません", "#b91c1c");
+    return;
+  }
+  if (warnings.length && !window.confirm("確認が必要な項目があります。このままコピーしますか？")) {
+    return;
+  }
   var text = document.getElementById("prev").textContent;
   var btn = document.getElementById("cpbtn"); var orig = btn.innerHTML;
   navigator.clipboard.writeText(text).then(function() {

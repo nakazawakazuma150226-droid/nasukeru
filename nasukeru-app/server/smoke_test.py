@@ -15,6 +15,7 @@ EXPECTED_GETS = [
     ("/js/field-meta.js", 200),
     ("/js/generic-values.js", 200),
     ("/js/condition-engine.js", 200),
+    ("/js/safety-rules.js", 200),
     ("/api/health", 200),
     ("/api/admin/templates", 200),
     ("/api/admin/templates/mca", 200),
@@ -166,6 +167,9 @@ GENERIC_V2_SCHEMA = {
                     "label": "Oxygen flow",
                     "type": "number",
                     "unit": "L",
+                    "blankPolicy": "block",
+                    "hardRange": {"min": 0, "max": 15},
+                    "warningRange": {"min": 1, "max": 5},
                     "allowEmpty": True,
                     "visibleIf": {"op": "eq", "field": "vitals.oxygen_use", "value": "oxygen"},
                     "requiredIf": {"op": "eq", "field": "vitals.oxygen_use", "value": "oxygen"},
@@ -698,8 +702,36 @@ def run_write_tests(failures):
                 lambda item: item["schema_format"] == "generic-v2"
                 and item["schema"]["sections"][0]["fields"][1]["visibleIf"]["field"] == "vitals.oxygen_use"
                 and item["schema"]["sections"][0]["fields"][1]["requiredIf"]["value"] == "oxygen"
+                and item["schema"]["sections"][0]["fields"][1]["blankPolicy"] == "block"
+                and item["schema"]["sections"][0]["fields"][1]["hardRange"] == {"min": 0, "max": 15}
                 and item["copy_format"]["lines"][1]["showIf"]["op"] == "eq",
                 "GET /api/templates/generic_v2_test returns condition schema",
+                failures,
+            )
+            generic_v2_admin_detail = client.get("/api/admin/templates/generic_v2_test")
+            assert_status(generic_v2_admin_detail, 200, "GET /api/admin/templates/generic_v2_test", failures)
+            generic_v2_base_version_id = (generic_v2_admin_detail.get_json() or {}).get("current_version_id")
+            risky_schema = copy.deepcopy(GENERIC_V2_SCHEMA)
+            risky_schema["sections"][0]["fields"] = [risky_schema["sections"][0]["fields"][0]]
+            risky_copy_format = {"format": "text-v1", "lines": ["Oxygen: {{vitals.oxygen_use}}"]}
+            risky_update_payload = {
+                "base_version_id": generic_v2_base_version_id,
+                "schema": risky_schema,
+                "copy_format": risky_copy_format,
+                "change_summary": "smoke risky update",
+                "change_reason": "smoke risk diff",
+            }
+            risky_update = client.post(
+                "/api/templates/generic_v2_test/versions",
+                json=risky_update_payload,
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(risky_update, 201, "POST /api/templates/generic_v2_test/versions high risk diff", failures)
+            assert_json_contains(
+                risky_update,
+                lambda item: any(change["code"] == "field_deleted" for change in item["high_risk_changes"])
+                and any(change["code"] == "copy_line_deleted" for change in item["high_risk_changes"]),
+                "POST /api/templates/generic_v2_test/versions returns high risk changes",
                 failures,
             )
 
@@ -803,6 +835,16 @@ def run_write_tests(failures):
                 client.post("/api/templates", json=invalid_show_if_payload, headers=LOCAL_HEADERS),
                 400,
                 "POST /api/templates generic-v2 invalid showIf field",
+                failures,
+            )
+
+            invalid_range_payload = copy.deepcopy(generic_v2_payload)
+            invalid_range_payload["id"] = "bad_hard_range"
+            invalid_range_payload["schema"]["sections"][0]["fields"][1]["hardRange"] = {"min": 20, "max": 10}
+            assert_status(
+                client.post("/api/templates", json=invalid_range_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v2 invalid hardRange",
                 failures,
             )
 

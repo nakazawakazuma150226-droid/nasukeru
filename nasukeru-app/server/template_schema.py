@@ -10,6 +10,7 @@ SCHEMA_FORMAT_GENERIC_V1 = "generic-v1"
 SCHEMA_FORMAT_GENERIC_V2 = "generic-v2"
 ALLOWED_SCHEMA_FORMATS = (SCHEMA_FORMAT_STROKE_V1, SCHEMA_FORMAT_GENERIC_V1, SCHEMA_FORMAT_GENERIC_V2)
 ALLOWED_GENERIC_FIELD_TYPES = ("text", "textarea", "select", "multi_select", "number")
+BLANK_POLICIES = ("allow", "warn", "block")
 CONDITION_OPS = ("eq", "neq", "in", "not_in", "contains", "gt", "gte", "lt", "lte", "is_blank", "and", "or", "not")
 CONDITION_MAX_DEPTH = 10
 COPY_FORMAT_TEXT_V1 = "text-v1"
@@ -88,6 +89,17 @@ def require_optional_bool(obj, key, field):
 def require_optional_number(obj, key, field):
     if key in obj and not isinstance(obj[key], (int, float)):
         raise SchemaValidationError(f"{field}.{key} must be a number")
+
+
+def validate_range(value, field):
+    require_object(value, field)
+    reject_unknown_keys(value, ("min", "max"), field)
+    if "min" not in value and "max" not in value:
+        raise SchemaValidationError(f"{field} requires min or max")
+    require_optional_number(value, "min", field)
+    require_optional_number(value, "max", field)
+    if "min" in value and "max" in value and value["min"] > value["max"]:
+        raise SchemaValidationError(f"{field}.min must be less than or equal to max")
 
 
 def normalize_option(option, field):
@@ -178,6 +190,7 @@ def validate_generic_field(field, section_field, used_ids):
             "options",
             "allowEmpty",
             "requiredWarning",
+            "blankPolicy",
             "placeholder",
             "helpText",
             "displayOrder",
@@ -185,6 +198,8 @@ def validate_generic_field(field, section_field, used_ids):
             "min",
             "max",
             "step",
+            "hardRange",
+            "warningRange",
             "visibleIf",
             "requiredIf",
         ),
@@ -209,6 +224,10 @@ def validate_generic_field(field, section_field, used_ids):
     require_optional_string(field, "unit", section_field)
     require_optional_bool(field, "allowEmpty", section_field)
     require_optional_bool(field, "requiredWarning", section_field)
+    if "blankPolicy" in field:
+        blank_policy = require_text(field["blankPolicy"], f"{section_field}.blankPolicy")
+        if blank_policy not in BLANK_POLICIES:
+            raise SchemaValidationError(f"{section_field}.blankPolicy must be one of: {', '.join(BLANK_POLICIES)}")
     require_optional_number(field, "displayOrder", section_field)
     require_optional_number(field, "min", section_field)
     require_optional_number(field, "max", section_field)
@@ -217,6 +236,14 @@ def validate_generic_field(field, section_field, used_ids):
         raise SchemaValidationError(f"{section_field}.min must be less than or equal to max")
     if "step" in field and field["step"] <= 0:
         raise SchemaValidationError(f"{section_field}.step must be greater than 0")
+    if "hardRange" in field:
+        if field_type != "number":
+            raise SchemaValidationError(f"{section_field}.hardRange requires number field")
+        validate_range(field["hardRange"], f"{section_field}.hardRange")
+    if "warningRange" in field:
+        if field_type != "number":
+            raise SchemaValidationError(f"{section_field}.warningRange requires number field")
+        validate_range(field["warningRange"], f"{section_field}.warningRange")
 
     if field_type in ("select", "multi_select"):
         if "options" not in field:
@@ -405,6 +432,7 @@ def normalize_generic_v1_schema(schema):
                         "options",
                         "allowEmpty",
                         "requiredWarning",
+                        "blankPolicy",
                         "placeholder",
                         "helpText",
                         "displayOrder",
@@ -412,6 +440,8 @@ def normalize_generic_v1_schema(schema):
                         "min",
                         "max",
                         "step",
+                        "hardRange",
+                        "warningRange",
                         "visibleIf",
                         "requiredIf",
                     ),
@@ -560,6 +590,86 @@ def validate_copy_format_references(schema, copy_format):
         raise SchemaValidationError(
             f"copy_format references unknown schema fields: {', '.join(unique_refs)}"
         )
+
+
+def blank_policy(field):
+    if field.get("blankPolicy"):
+        return field["blankPolicy"]
+    if field.get("requiredWarning"):
+        return "warn"
+    return "allow"
+
+
+def policy_rank(policy):
+    return {"allow": 0, "warn": 1, "block": 2}.get(policy or "allow", 0)
+
+
+def range_relaxed(before_range, after_range):
+    if before_range and not after_range:
+        return True
+    if not before_range:
+        return False
+    before_min = before_range.get("min")
+    before_max = before_range.get("max")
+    after_min = after_range.get("min") if after_range else None
+    after_max = after_range.get("max") if after_range else None
+    if before_min is not None and (after_min is None or after_min < before_min):
+        return True
+    if before_max is not None and (after_max is None or after_max > before_max):
+        return True
+    return False
+
+
+def collect_generic_fields(schema):
+    if not schema or schema_format(schema) not in (SCHEMA_FORMAT_GENERIC_V1, SCHEMA_FORMAT_GENERIC_V2):
+        return {}
+    fields = {}
+    for section in schema.get("sections", []):
+        for field in section.get("fields", []):
+            fields[f"{section.get('id')}.{field.get('id')}"] = field
+    return fields
+
+
+def normalized_copy_lines(copy_format):
+    if not copy_format:
+        return []
+    return [repr(line) for line in copy_format.get("lines", [])]
+
+
+def detect_high_risk_changes(before_schema, after_schema, before_copy_format=None, after_copy_format=None):
+    changes = []
+    before_fields = collect_generic_fields(before_schema)
+    after_fields = collect_generic_fields(after_schema)
+    for ref, before_field in before_fields.items():
+        after_field = after_fields.get(ref)
+        label = before_field.get("label") or ref
+        if after_field is None:
+            changes.append({"code": "field_deleted", "fieldRef": ref, "message": f"{label}が削除されました"})
+            continue
+        before_policy = blank_policy(before_field)
+        after_policy = blank_policy(after_field)
+        if policy_rank(before_policy) > policy_rank(after_policy):
+            changes.append(
+                {
+                    "code": "blank_policy_relaxed",
+                    "fieldRef": ref,
+                    "message": f"{label}のblankPolicyが {before_policy} → {after_policy} に緩和されました",
+                }
+            )
+        if before_field.get("requiredIf") and not after_field.get("requiredIf"):
+            changes.append({"code": "required_if_deleted", "fieldRef": ref, "message": f"{label}のrequiredIfが削除されました"})
+        if before_field.get("visibleIf") != after_field.get("visibleIf"):
+            changes.append({"code": "condition_changed", "fieldRef": ref, "message": f"{label}のvisibleIfが変更されました"})
+        if before_field.get("requiredIf") != after_field.get("requiredIf") and after_field.get("requiredIf"):
+            changes.append({"code": "condition_changed", "fieldRef": ref, "message": f"{label}のrequiredIfが変更されました"})
+        if range_relaxed(before_field.get("hardRange"), after_field.get("hardRange")):
+            changes.append({"code": "hard_range_relaxed", "fieldRef": ref, "message": f"{label}のhardRangeが緩和されました"})
+
+    before_lines = normalized_copy_lines(before_copy_format)
+    after_lines = normalized_copy_lines(after_copy_format)
+    if len(after_lines) < len(before_lines) or any(line not in after_lines for line in before_lines):
+        changes.append({"code": "copy_line_deleted", "fieldRef": "", "message": "copy_formatの行が削除または変更されました"})
+    return changes
 
 
 def validate_template_payload(

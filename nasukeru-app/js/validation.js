@@ -31,6 +31,39 @@ function getMissingRequiredItems(card) {
   return missing;
 }
 
+function getSafetyValidationResult(card) {
+  if (card.dataset.schemaFormat === "generic-v1" || card.dataset.schemaFormat === "generic-v2") {
+    return getGenericSafetyValidationResult(card);
+  }
+  return {
+    blocks: [],
+    warnings: getMissingRequiredItems(card).map(function(label) {
+      return { fieldRef: "", code: "required_blank", severity: "warn", message: label + "が未入力です" };
+    })
+  };
+}
+
+function getGenericSafetyValidationResult(card) {
+  var values = NasukeruGenericValues.collectTypedValues(card);
+  var fields = [];
+  card.querySelectorAll(".generic-input").forEach(function(input) {
+    var row = input.closest(".nrow");
+    fields.push({
+      ref: NasukeruGenericValues.fieldRef(input),
+      label: input.dataset.fieldLabel || "入力項目",
+      type: input.dataset.fieldType || "text",
+      value: NasukeruGenericValues.parseInputValue(input),
+      visible: !(row && row.hidden),
+      blankPolicy: input.dataset.blankPolicy || "",
+      requiredWarning: input.dataset.requiredWarning === "true",
+      requiredIf: input.genericRequiredIf || null,
+      hardRange: input.genericHardRange || null,
+      warningRange: input.genericWarningRange || null,
+    });
+  });
+  return NasukeruSafetyRules.validateFields(fields, values);
+}
+
 function getMissingGenericRequiredItems(card) {
   var missing = [];
   var values = NasukeruGenericValues.collectTypedValues(card);
@@ -48,22 +81,35 @@ function getMissingGenericRequiredItems(card) {
 }
 
 function renderMissingWarning(items) {
+  renderSafetyValidation({
+    blocks: [],
+    warnings: (items || []).map(function(label) {
+      return { message: label };
+    }),
+  });
+}
+
+function renderSafetyValidation(result) {
   var warn = document.getElementById("warn");
   if (!warn) return;
-  if (!items.length) {
+  var blocks = (result && result.blocks) || [];
+  var warnings = (result && result.warnings) || [];
+  if (!blocks.length && !warnings.length) {
     warn.classList.remove("show");
+    warn.classList.remove("block");
     warn.innerHTML = "";
     return;
   }
   warn.innerHTML = "";
+  warn.classList.toggle("block", blocks.length > 0);
   var title = document.createElement("div");
   title.className = "warn-title";
-  title.textContent = "未入力の重要項目があります";
+  title.textContent = blocks.length ? "コピー前に修正が必要な項目があります" : "確認が必要な項目があります";
   var list = document.createElement("ul");
   list.className = "warn-list";
-  items.forEach(function(item) {
+  blocks.concat(warnings).forEach(function(item) {
     var li = document.createElement("li");
-    li.textContent = item;
+    li.textContent = item.message || item;
     list.appendChild(li);
   });
   warn.appendChild(title);

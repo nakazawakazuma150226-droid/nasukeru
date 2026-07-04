@@ -9,6 +9,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from template_schema import (
     SchemaValidationError,
+    detect_high_risk_changes,
     normalize_schema,
     schema_format as get_schema_format,
     validate_template_payload,
@@ -282,13 +283,13 @@ def admin_template_detail_from_row(row):
     }
 
 
-def insert_audit_log(conn, template_id, version_id, action, acted_at, reason, before=None, after=None):
+def insert_audit_log(conn, template_id, version_id, action, acted_at, reason, before=None, after=None, diff=None):
     conn.execute(
         """
         INSERT INTO template_audit_logs
           (template_id, version_id, action, actor_name, acted_at,
            before_json, after_json, diff_json, reason, client_info)
-        VALUES (?, ?, ?, 'local', ?, ?, ?, NULL, ?, ?)
+        VALUES (?, ?, ?, 'local', ?, ?, ?, ?, ?, ?)
         """,
         (
             template_id,
@@ -297,6 +298,7 @@ def insert_audit_log(conn, template_id, version_id, action, acted_at, reason, be
             acted_at,
             json_dumps(before) if before is not None else None,
             json_dumps(after) if after is not None else None,
+            json_dumps(diff) if diff is not None else None,
             reason,
             request.user_agent.string,
         ),
@@ -537,6 +539,7 @@ def create_template_version(template_id):
     timestamp = now_iso()
     schema_json = json_dumps(validated["schema"])
     copy_format_json = json_dumps(validated["copy_format"]) if validated["copy_format"] is not None else None
+    high_risk_changes = []
     conn = connect()
     try:
         conn.execute("BEGIN")
@@ -547,6 +550,14 @@ def create_template_version(template_id):
             raise TemplateStateError("deleted template cannot be edited")
         if template["current_version_id"] != base_version_id:
             raise TemplateStateError("template has been updated; reload before saving")
+        before_schema = normalize_db_template_schema(parse_json_value(template["current_schema_json"]))
+        before_copy_format = parse_json_value(template["current_copy_format_json"])
+        high_risk_changes = detect_high_risk_changes(
+            before_schema,
+            validated["schema"],
+            before_copy_format,
+            validated["copy_format"],
+        )
 
         version_number = conn.execute(
             """
@@ -598,6 +609,7 @@ def create_template_version(template_id):
                 "schema": validated["schema"],
                 "copy_format": validated["copy_format"],
             },
+            diff={"high_risk_changes": high_risk_changes},
         )
         conn.commit()
     except Exception:
@@ -611,6 +623,7 @@ def create_template_version(template_id):
             "template_id": template_id,
             "version_id": version_id,
             "version_number": version_number,
+            "high_risk_changes": high_risk_changes,
         }
     ), 201
 

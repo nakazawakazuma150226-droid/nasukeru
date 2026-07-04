@@ -241,3 +241,59 @@ Gate:
 Next:
 
 - Phase 6 Medical Safety Rule Layer
+
+## Phase 6: Medical Safety Rule Layer
+
+Status: PASS
+
+Base: `76e920b`
+
+Implemented:
+
+- `blankPolicy` を追加
+  - `allow`: 空欄許可
+  - `warn`: 確認後コピー可能
+  - `block`: コピー不可
+- `hardRange` / `warningRange` を追加
+  - `hardRange` 範囲外はblock
+  - `warningRange` 範囲外はwarn
+- `js/safety-rules.js` を追加し、`{ blocks, warnings }` の安全判定結果を返す
+- `requiredWarning=true` を後方互換としてwarn扱いにする
+- `copy-renderer` に `renderGenericTemplateCopyResult()` を追加し、`{ text, unresolvedRefs, warnings }` を返せるようにした
+- copy UIでblock時はコピー不可、warn時は確認後コピー可能にした
+- テンプレート更新時の高リスク差分検出を追加
+  - field削除
+  - `blankPolicy` 緩和
+  - condition変更
+  - `requiredIf` 削除
+  - `hardRange` 緩和
+  - copy line削除または変更
+- 高リスク差分をAPIレスポンス `high_risk_changes` と監査ログ `diff.high_risk_changes` に保存
+- README / handoff にSafety Layerの現行仕様を追記
+
+Tests:
+
+- Python compile PASS
+- JS syntax check PASS
+- copy renderer unit test PASS
+- generic value unit test PASS
+- condition engine unit test PASS
+- safety rules unit test PASS
+- smoke test PASS
+- Browser manual check PASS
+  - `blankPolicy=block` でコピー前修正メッセージ表示
+  - block状態のwarning UIが赤系表示
+
+Review:
+
+- Critical: 0
+- High: 0
+- Medium: 0
+
+Gate:
+
+- PASS
+
+Next:
+
+- Phase 7 Admin Template Builder

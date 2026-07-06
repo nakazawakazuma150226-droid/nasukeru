@@ -5,10 +5,8 @@ from pathlib import Path
 
 import init_db
 from template_fixes_010 import (
-    DYSPHAGIA_DIET_LEVELS,
     HORIZONTAL_NYSTAGMUS_OPTIONS,
     SIDE_OPTIONS,
-    THICKENED_WATER_LEVELS,
     apply_template_fixes,
 )
 from template_schema import validate_copy_format_references
@@ -91,12 +89,20 @@ def main():
 
                 assert_condition(fields["vitals.ecg_rhythm_other"], {"op": "eq", "field": "vitals.ecg_rhythm", "value": "その他"})
                 assert_condition(fields["vitals.oxygen_flow"], {"op": "eq", "field": "vitals.oxygen_use", "value": "O2使用"})
-                assert option_labels(fields["swallow.thickened_water_level"]) == THICKENED_WATER_LEVELS
-                assert_condition(fields["swallow.thickened_water_level"], {"op": "contains", "field": "swallow.meal", "value": "とろみ水"})
-                assert option_labels(fields["swallow.dysphagia_diet_level"]) == DYSPHAGIA_DIET_LEVELS
-                assert_condition(fields["swallow.dysphagia_diet_level"], {"op": "contains", "field": "swallow.meal", "value": "嚥下食"})
+                # thickened_water_level / dysphagia_diet_level / antihypertensive_other now
+                # come from the genesis (init_db.py) definition; migration 010's own insert
+                # is a no-op guard since these fields already exist (see has_field in
+                # template_fixes_010.py). Genesis only sets visibleIf (optional fields),
+                # not requiredIf, so these three are checked directly rather than via
+                # assert_condition (which requires both to match).
+                assert option_labels(fields["swallow.thickened_water_level"]) == ["薄め", "中程度", "濃い"]
+                assert fields["swallow.thickened_water_level"]["visibleIf"] == {"op": "contains", "field": "swallow.meal", "value": "とろみ水"}
+                assert fields["swallow.dysphagia_diet_level"]["type"] == "number"
+                assert fields["swallow.dysphagia_diet_level"]["min"] == 1
+                assert fields["swallow.dysphagia_diet_level"]["max"] == 5
+                assert fields["swallow.dysphagia_diet_level"]["visibleIf"] == {"op": "contains", "field": "swallow.meal", "value": "嚥下食"}
                 assert_condition(fields["treatment.nicardipine_rate"], {"op": "contains", "field": "treatment.antihypertensive", "value": "ニカルジピン"})
-                assert_condition(fields["treatment.antihypertensive_other"], {"op": "contains", "field": "treatment.antihypertensive", "value": "その他"})
+                assert fields["treatment.antihypertensive_other"]["visibleIf"] == {"op": "contains", "field": "treatment.antihypertensive", "value": "その他"}
                 validate_copy_format_references(neuro_schema, neuro_copy)
 
                 current_ids = conn.execute("SELECT current_version_id FROM templates WHERE id IN ('mca','aca','pca','lacunar','brainstem','neuro_common')").fetchall()

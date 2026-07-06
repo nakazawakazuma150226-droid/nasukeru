@@ -347,6 +347,14 @@ def build_generic_stroke_copy_format(template):
     )
 
 
+def meal_contains(value):
+    return {"op": "contains", "field": "swallow.meal", "value": value}
+
+
+def antihypertensive_contains(value):
+    return {"op": "contains", "field": "treatment.antihypertensive", "value": value}
+
+
 def build_neuro_common_schema():
     sections = [
         {
@@ -435,6 +443,16 @@ def build_neuro_common_schema():
             "displayOrder": 8,
             "fields": [
                 generic_field("meal", "食事・飲水", "multi_select", options=["禁食", "飲水可", "とろみ水", "嚥下食", "常食"]),
+                generic_field(
+                    "thickened_water_level", "とろみの程度", "select",
+                    options=["薄め", "中程度", "濃い"],
+                    visibleIf=meal_contains("とろみ水"),
+                ),
+                generic_field(
+                    "dysphagia_diet_level", "嚥下食レベル", "number",
+                    min=1, max=5, step=1,
+                    visibleIf=meal_contains("嚥下食"),
+                ),
                 generic_field("choking", "むせ", "select", options=["なし", "あり"]),
             ],
         },
@@ -463,11 +481,16 @@ def build_neuro_common_schema():
             "fields": [
                 generic_field("antihypertensive", "降圧薬", "multi_select", options=["ニカルジピン", "アムロジピン", "その他"]),
                 generic_field("nicardipine_rate", "ニカルジピン速度", "number", unit="ml/h", min=0, step=0.1),
+                generic_field(
+                    "antihypertensive_other", "降圧薬その他", "text",
+                    placeholder="薬剤名を入力",
+                    visibleIf=antihypertensive_contains("その他"),
+                ),
                 generic_field("other", "治療メモ", "textarea"),
             ],
         },
     ]
-    return normalize_schema({"schemaFormat": "generic-v1", "sections": sections})
+    return normalize_schema({"schemaFormat": "generic-v2", "sections": sections})
 
 
 def build_neuro_common_copy_format():
@@ -492,9 +515,12 @@ def build_neuro_common_copy_format():
                 "高次脳機能所見：{{higher.findings}}。",
                 "頭蓋内圧亢進症状：{{icp.symptoms}}。",
                 "嚥下：{{swallow.meal}}、むせ：{{swallow.choking}}。",
+                {"text": "とろみの程度：{{swallow.thickened_water_level}}。", "showIf": meal_contains("とろみ水")},
+                {"text": "嚥下食レベル：{{swallow.dysphagia_diet_level}}。", "showIf": meal_contains("嚥下食")},
                 "安静度：{{activity.rest}}、ADL：{{activity.adl}}。",
                 "排尿：{{elimination.urination}}、排便：{{elimination.defecation}}。",
                 "降圧薬：{{treatment.antihypertensive}}、ニカルジピン速度：{{treatment.nicardipine_rate}}ml/h。",
+                {"text": "降圧薬その他：{{treatment.antihypertensive_other}}。", "showIf": antihypertensive_contains("その他")},
                 {"text": "{{treatment.other}}", "splitLinesFrom": "treatment.other", "omitIfAllBlank": ["treatment.other"]},
             ],
         }

@@ -382,6 +382,7 @@
     section = section || { id: "section", label: "セクション", displayOrder: 1, fields: [] };
     var card = el("section", "admin-builder-section", null);
     card.dataset.builderSection = "1";
+    card.originalSection = cloneValue(section);
     var header = el("div", "admin-builder-card-head");
     header.appendChild(el("strong", "", "Section"));
     var remove = el("button", "btn bg admin-row-btn", "削除");
@@ -445,13 +446,14 @@
   function collectSchema(root, schemaFormat) {
     var sections = [];
     root.querySelectorAll("[data-builder-section]").forEach(function(sectionNode) {
-      var section = {
+      var section = Object.assign({}, cloneValue(sectionNode.originalSection) || {}, {
         id: sectionNode.querySelector(".builder-section-id").value.trim(),
         label: sectionNode.querySelector(".builder-section-label").value.trim(),
         fields: [],
-      };
+      });
       var order = sectionNode.querySelector(".builder-section-order").value;
       if (order !== "") section.displayOrder = Number(order);
+      else delete section.displayOrder;
       sectionNode.querySelectorAll("[data-builder-field]").forEach(function(fieldNode) {
         var field = Object.assign({}, cloneValue(fieldNode.originalField) || {});
         field.id = fieldNode.querySelector(".builder-field-id").value.trim();

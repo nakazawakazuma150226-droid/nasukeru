@@ -502,7 +502,7 @@ def run_write_tests(failures):
             assert_status(neuro_common_response, 200, "GET /api/templates/neuro_common after migration", failures)
             assert_json_contains(
                 neuro_common_response,
-                lambda item: item["schema_format"] == "generic-v1"
+                lambda item: item["schema_format"] == "generic-v2"
                 and item["label"] == "脳卒中共通"
                 and any(
                     section["id"] == "motor"
@@ -973,6 +973,219 @@ def run_write_tests(failures):
                 "POST /api/templates generic-v2 marks conditional unreferenced field",
                 failures,
             )
+            section_visible_if_schema = {
+                "schemaFormat": "generic-v2",
+                "sections": [
+                    {
+                        "id": "phase",
+                        "label": "Phase",
+                        "fields": [
+                            {
+                                "id": "p",
+                                "label": "Phase",
+                                "type": "select",
+                                "options": ["pre", "post"],
+                                "allowEmpty": True,
+                            }
+                        ],
+                    },
+                    {
+                        "id": "pre_op",
+                        "label": "Pre-op",
+                        "visibleIf": {"op": "eq", "field": "phase.p", "value": "pre"},
+                        "fields": [{"id": "note", "label": "Note", "type": "text", "allowEmpty": True}],
+                    },
+                ],
+            }
+            section_visible_if_copy_format = {
+                "format": "text-v1",
+                "lines": ["{{phase.p}} {{pre_op.note}}"],
+            }
+            section_v1_reject_payload = {
+                "id": "section_v1_reject",
+                "label": "Section v1 reject",
+                "full": "Section v1 reject",
+                "category": "procedure",
+                "schema": {**copy.deepcopy(section_visible_if_schema), "schemaFormat": "generic-v1"},
+                "copy_format": section_visible_if_copy_format,
+                "change_reason": "smoke section visibleIf v1 reject",
+            }
+            assert_status(
+                client.post("/api/templates", json=section_v1_reject_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v1 rejects section visibleIf",
+                failures,
+            )
+            section_v2_payload = {
+                "id": "section_v2_test",
+                "label": "Section v2 test",
+                "full": "Section v2 test",
+                "category": "procedure",
+                "schema": section_visible_if_schema,
+                "copy_format": section_visible_if_copy_format,
+                "change_reason": "smoke section visibleIf",
+            }
+            section_v2_response = client.post("/api/templates", json=section_v2_payload, headers=LOCAL_HEADERS)
+            assert_status(section_v2_response, 201, "POST /api/templates generic-v2 accepts section visibleIf", failures)
+            section_v2_detail = client.get("/api/templates/section_v2_test")
+            assert_json_contains(
+                section_v2_detail,
+                lambda item: item["schema"]["sections"][1]["visibleIf"] == {"op": "eq", "field": "phase.p", "value": "pre"},
+                "GET /api/templates/section_v2_test returns section visibleIf",
+                failures,
+            )
+
+            section_cycle_schema = {
+                "schemaFormat": "generic-v2",
+                "sections": [
+                    {
+                        "id": "a",
+                        "label": "A",
+                        "visibleIf": {"op": "eq", "field": "b.f2", "value": "x"},
+                        "fields": [{"id": "f1", "label": "F1", "type": "text", "allowEmpty": True}],
+                    },
+                    {
+                        "id": "b",
+                        "label": "B",
+                        "visibleIf": {"op": "eq", "field": "a.f1", "value": "y"},
+                        "fields": [{"id": "f2", "label": "F2", "type": "text", "allowEmpty": True}],
+                    },
+                ],
+            }
+            section_cycle_payload = {
+                "id": "section_cycle_test",
+                "label": "Section cycle test",
+                "full": "Section cycle test",
+                "category": "procedure",
+                "schema": section_cycle_schema,
+                "copy_format": {"format": "text-v1", "lines": ["{{a.f1}} {{b.f2}}"]},
+                "change_reason": "smoke section visibleIf cycle",
+            }
+            assert_status(
+                client.post("/api/templates", json=section_cycle_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v2 rejects section visibleIf cycle",
+                failures,
+            )
+
+            duplicate_condition_schema = {
+                "schemaFormat": "generic-v2",
+                "sections": [
+                    {
+                        "id": "phase2",
+                        "label": "Phase2",
+                        "fields": [
+                            {
+                                "id": "p",
+                                "label": "Phase",
+                                "type": "select",
+                                "options": ["pre", "post"],
+                                "allowEmpty": True,
+                            }
+                        ],
+                    },
+                    {
+                        "id": "sec1",
+                        "label": "Sec1",
+                        "visibleIf": {"op": "eq", "field": "phase2.p", "value": "pre"},
+                        "fields": [{"id": "x", "label": "X", "type": "text", "allowEmpty": True}],
+                    },
+                    {
+                        "id": "sec2",
+                        "label": "Sec2",
+                        "visibleIf": {"op": "eq", "field": "phase2.p", "value": "pre"},
+                        "fields": [{"id": "y", "label": "Y", "type": "text", "allowEmpty": True}],
+                    },
+                ],
+            }
+            duplicate_condition_payload = {
+                "id": "duplicate_condition_test",
+                "label": "Duplicate condition test",
+                "full": "Duplicate condition test",
+                "category": "procedure",
+                "schema": duplicate_condition_schema,
+                "copy_format": {"format": "text-v1", "lines": ["{{sec1.x}} {{sec2.y}} {{phase2.p}}"]},
+                "change_reason": "smoke duplicate section condition",
+            }
+            duplicate_condition_response = client.post(
+                "/api/templates", json=duplicate_condition_payload, headers=LOCAL_HEADERS
+            )
+            assert_status(
+                duplicate_condition_response,
+                201,
+                "POST /api/templates generic-v2 duplicate section condition",
+                failures,
+            )
+            assert_json_contains(
+                duplicate_condition_response,
+                lambda item: any(
+                    warning["code"] == "duplicate_section_condition" and warning["fieldRef"] == "phase2.p"
+                    for warning in item.get("warnings", [])
+                ),
+                "POST /api/templates generic-v2 warns on duplicate section condition",
+                failures,
+            )
+
+            # Regression: eq(x, "a") and not(eq(x, "a")) are mutually exclusive
+            # (never both visible at once), so they must NOT be flagged as a
+            # duplicate/copy-paste-suspect condition pair.
+            negated_condition_schema = {
+                "schemaFormat": "generic-v2",
+                "sections": [
+                    {
+                        "id": "phase3",
+                        "label": "Phase3",
+                        "fields": [
+                            {
+                                "id": "p",
+                                "label": "Phase",
+                                "type": "select",
+                                "options": ["pre", "post"],
+                                "allowEmpty": True,
+                            }
+                        ],
+                    },
+                    {
+                        "id": "sec3",
+                        "label": "Sec3",
+                        "visibleIf": {"op": "eq", "field": "phase3.p", "value": "pre"},
+                        "fields": [{"id": "x", "label": "X", "type": "text", "allowEmpty": True}],
+                    },
+                    {
+                        "id": "sec4",
+                        "label": "Sec4",
+                        "visibleIf": {"op": "not", "condition": {"op": "eq", "field": "phase3.p", "value": "pre"}},
+                        "fields": [{"id": "y", "label": "Y", "type": "text", "allowEmpty": True}],
+                    },
+                ],
+            }
+            negated_condition_payload = {
+                "id": "negated_condition_test",
+                "label": "Negated condition test",
+                "full": "Negated condition test",
+                "category": "procedure",
+                "schema": negated_condition_schema,
+                "copy_format": {"format": "text-v1", "lines": ["{{sec3.x}} {{sec4.y}} {{phase3.p}}"]},
+                "change_reason": "smoke negated section condition",
+            }
+            negated_condition_response = client.post(
+                "/api/templates", json=negated_condition_payload, headers=LOCAL_HEADERS
+            )
+            assert_status(
+                negated_condition_response,
+                201,
+                "POST /api/templates generic-v2 negated section condition",
+                failures,
+            )
+            assert_json_contains(
+                negated_condition_response,
+                lambda item: not any(
+                    warning["code"] == "duplicate_section_condition" for warning in item.get("warnings", [])
+                ),
+                "POST /api/templates generic-v2 does not warn on mutually exclusive eq/not(eq) conditions",
+                failures,
+            )
+
             generic_v2_base_version_id = (generic_v2_admin_detail.get_json() or {}).get("current_version_id")
             risky_schema = copy.deepcopy(GENERIC_V2_SCHEMA)
             risky_schema["sections"][0]["fields"] = [risky_schema["sections"][0]["fields"][0]]

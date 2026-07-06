@@ -72,6 +72,10 @@ def field_by_id(schema, section_id, field_id):
     return next(field for field in section["fields"] if field["id"] == field_id)
 
 
+def has_field(fields, field_id):
+    return any(field["id"] == field_id for field in fields)
+
+
 def conditional_field(field_id, label, field_type, condition, **extra):
     return generic_field(
         field_id,
@@ -160,10 +164,11 @@ def build_corrected_neuro_common_schema():
 
     vitals = section_by_id(schema, "vitals")["fields"]
     ecg_index = next(index for index, field in enumerate(vitals) if field["id"] == "ecg_rhythm")
-    vitals.insert(
-        ecg_index + 1,
-        conditional_field("ecg_rhythm_other", "その他の心電図リズム", "text", ecg_other_condition, placeholder="例: VT"),
-    )
+    if not has_field(vitals, "ecg_rhythm_other"):
+        vitals.insert(
+            ecg_index + 1,
+            conditional_field("ecg_rhythm_other", "その他の心電図リズム", "text", ecg_other_condition, placeholder="例: VT"),
+        )
     oxygen_flow = field_by_id(schema, "vitals", "oxygen_flow")
     oxygen_flow["unit"] = "L/分"
     oxygen_flow["visibleIf"] = oxygen_condition
@@ -183,7 +188,7 @@ def build_corrected_neuro_common_schema():
 
     swallow = section_by_id(schema, "swallow")["fields"]
     meal_index = next(index for index, field in enumerate(swallow) if field["id"] == "meal")
-    swallow[meal_index + 1:meal_index + 1] = [
+    new_swallow_fields = [
         conditional_field(
             "thickened_water_level", "とろみの程度", "select", thickened_condition,
             options=THICKENED_WATER_LEVELS,
@@ -193,19 +198,23 @@ def build_corrected_neuro_common_schema():
             options=DYSPHAGIA_DIET_LEVELS,
         ),
     ]
+    swallow[meal_index + 1:meal_index + 1] = [
+        field for field in new_swallow_fields if not has_field(swallow, field["id"])
+    ]
 
     nicardipine_rate = field_by_id(schema, "treatment", "nicardipine_rate")
     nicardipine_rate["visibleIf"] = nicardipine_condition
     nicardipine_rate["requiredIf"] = nicardipine_condition
     treatment = section_by_id(schema, "treatment")["fields"]
     rate_index = next(index for index, field in enumerate(treatment) if field["id"] == "nicardipine_rate")
-    treatment.insert(
-        rate_index + 1,
-        conditional_field(
-            "antihypertensive_other", "その他の降圧薬", "text",
-            antihypertensive_other_condition, placeholder="薬剤名を入力",
-        ),
-    )
+    if not has_field(treatment, "antihypertensive_other"):
+        treatment.insert(
+            rate_index + 1,
+            conditional_field(
+                "antihypertensive_other", "その他の降圧薬", "text",
+                antihypertensive_other_condition, placeholder="薬剤名を入力",
+            ),
+        )
 
     return normalize_schema(schema)
 

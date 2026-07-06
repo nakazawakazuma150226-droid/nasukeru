@@ -256,6 +256,10 @@ def validate_generic_field(field, section_field, used_ids):
         raise SchemaValidationError(f"{section_field}.options requires select or multi_select field")
 
 
+def option_value(option):
+    return option if isinstance(option, str) else option.get("value")
+
+
 def generic_field_refs(schema):
     refs = {}
     for section in schema["sections"]:
@@ -314,7 +318,7 @@ def validate_condition(condition, field_refs, field, depth=0):
         if target_type == "number" and any(not isinstance(item, (int, float)) or isinstance(item, bool) for item in value):
             raise SchemaValidationError(f"{field}.value must contain numbers for {op}")
         if target_type in ("select", "multi_select"):
-            allowed_values = {option["value"] for option in target.get("options", [])}
+            allowed_values = {option_value(option) for option in target.get("options", [])}
             unknown_values = [item for item in value if item not in allowed_values]
             if unknown_values:
                 raise SchemaValidationError(f"{field}.value references unknown option value: {unknown_values[0]}")
@@ -323,14 +327,14 @@ def validate_condition(condition, field_refs, field, depth=0):
             raise SchemaValidationError(f"{field}.field must reference a multi_select field for contains")
         if isinstance(value, (dict, list)):
             raise SchemaValidationError(f"{field}.value must be a scalar for contains")
-        allowed_values = {option["value"] for option in target.get("options", [])}
+        allowed_values = {option_value(option) for option in target.get("options", [])}
         if value not in allowed_values:
             raise SchemaValidationError(f"{field}.value references unknown option value: {value}")
     elif target_type == "number" and op in ("eq", "neq"):
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             raise SchemaValidationError(f"{field}.value must be a number for {op}")
     elif target_type == "select" and op in ("eq", "neq"):
-        allowed_values = {option["value"] for option in target.get("options", [])}
+        allowed_values = {option_value(option) for option in target.get("options", [])}
         if value not in allowed_values:
             raise SchemaValidationError(f"{field}.value references unknown option value: {value}")
     elif isinstance(value, (dict, list)):
@@ -341,8 +345,17 @@ def detect_visible_condition_cycles(schema):
     refs = generic_field_refs(schema)
     graph = {ref: set() for ref in refs}
     for section in schema.get("sections", []):
+        graph.setdefault(section["id"], set())
+
+    for section in schema.get("sections", []):
+        section_id = section["id"]
+        for dependency in iter_condition_field_refs(section.get("visibleIf")):
+            if dependency in graph:
+                graph[section_id].add(dependency)
         for field in section.get("fields", []):
-            ref = f"{section['id']}.{field['id']}"
+            ref = f"{section_id}.{field['id']}"
+            # a field's effective visibility always depends on its parent section
+            graph[ref].add(section_id)
             for dependency in iter_condition_field_refs(field.get("visibleIf")):
                 if dependency in graph:
                     graph[ref].add(dependency)
@@ -384,7 +397,7 @@ def validate_generic_v1_schema(schema):
         require_object(section, section_field)
         reject_unknown_keys(
             section,
-            ("id", "label", "displayOrder", "helpText", "fields"),
+            ("id", "label", "displayOrder", "helpText", "fields", "visibleIf"),
             section_field,
         )
         require_keys(section, ("id", "label", "fields"), section_field)
@@ -406,6 +419,10 @@ def validate_generic_v1_schema(schema):
             validate_generic_field(field, f"{section_field}.fields[{field_index}]", used_field_ids)
     if fmt == SCHEMA_FORMAT_GENERIC_V1:
         for section_index, section in enumerate(sections):
+            if "visibleIf" in section:
+                raise SchemaValidationError(
+                    f"schema.sections[{section_index}].visibleIf requires generic-v2"
+                )
             for field_index, field in enumerate(section["fields"]):
                 if "visibleIf" in field or "requiredIf" in field:
                     raise SchemaValidationError(
@@ -414,8 +431,11 @@ def validate_generic_v1_schema(schema):
         return schema
     refs = generic_field_refs(schema)
     for section_index, section in enumerate(sections):
+        section_path = f"schema.sections[{section_index}]"
+        if "visibleIf" in section:
+            validate_condition(section["visibleIf"], refs, f"{section_path}.visibleIf")
         for field_index, field in enumerate(section["fields"]):
-            field_path = f"schema.sections[{section_index}].fields[{field_index}]"
+            field_path = f"{section_path}.fields[{field_index}]"
             if "visibleIf" in field:
                 validate_condition(field["visibleIf"], refs, f"{field_path}.visibleIf")
             if "requiredIf" in field:
@@ -497,7 +517,7 @@ def normalize_generic_v1_schema(schema):
         normalized_sections.append(
             ordered_with_known_keys(
                 {**section, "fields": normalized_fields},
-                ("id", "label", "displayOrder", "helpText", "fields"),
+                ("id", "label", "displayOrder", "helpText", "fields", "visibleIf"),
             )
         )
     return ordered_with_known_keys(
@@ -677,12 +697,13 @@ def collect_unreferenced_fields(schema, copy_format):
     warnings = []
     for section in schema["sections"]:
         section_label = section.get("label") or section.get("id")
+        section_conditional = bool(section.get("visibleIf"))
         for field in section["fields"]:
             ref = f"{section['id']}.{field['id']}"
             if ref in output_refs:
                 continue
             field_label = field.get("label") or field.get("id")
-            suffix = "（条件付き表示）" if field.get("visibleIf") else ""
+            suffix = "（条件付き表示）" if field.get("visibleIf") or section_conditional else ""
             label = f"{section_label} > {field_label}{suffix}"
             warnings.append(
                 {
@@ -692,6 +713,58 @@ def collect_unreferenced_fields(schema, copy_format):
                     "message": f"入力項目『{label}』はコピー出力に含まれていません",
                 }
             )
+    return warnings
+
+
+def iter_condition_eq_in_pairs(condition):
+    if not isinstance(condition, dict):
+        return
+    op = condition.get("op")
+    if op in ("and", "or"):
+        for child in condition.get("conditions", []):
+            yield from iter_condition_eq_in_pairs(child)
+        return
+    if op == "not":
+        # A negated condition has the opposite meaning of its inner condition,
+        # so its (field, value) pair must not be treated as equal/duplicate.
+        return
+    ref = condition.get("field")
+    if not isinstance(ref, str):
+        return
+    if op == "eq":
+        yield (ref, condition.get("value"))
+    elif op == "in" and isinstance(condition.get("value"), list):
+        for value in condition["value"]:
+            yield (ref, value)
+
+
+def collect_duplicate_section_conditions(schema):
+    if schema_format(schema) != SCHEMA_FORMAT_GENERIC_V2:
+        return []
+    sections_by_pair = {}
+    for section in schema.get("sections", []):
+        condition = section.get("visibleIf")
+        if not condition:
+            continue
+        section_label = section.get("label") or section.get("id")
+        for pair in set(iter_condition_eq_in_pairs(condition)):
+            sections_by_pair.setdefault(pair, []).append(section_label)
+    warnings = []
+    for (field_ref, value), labels in sections_by_pair.items():
+        if len(labels) < 2:
+            continue
+        warnings.append(
+            {
+                "code": "duplicate_section_condition",
+                "fieldRef": field_ref,
+                "value": value,
+                "sections": labels,
+                "message": (
+                    f"セクション「{'」「'.join(labels)}」が同じ条件（{field_ref} = {value}）"
+                    "で表示されます。コピー&ペースト間違いの可能性があります"
+                ),
+            }
+        )
     return warnings
 
 

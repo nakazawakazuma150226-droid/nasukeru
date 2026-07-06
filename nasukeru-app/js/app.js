@@ -324,7 +324,7 @@ function optionLabelMap(options) {
 
 function renderGenericBody(body, schema) {
   sortedByDisplayOrder(schema.sections).forEach(function(section) {
-    var sec = makeSec(section.label);
+    var sec = makeSec(section);
     sortedByDisplayOrder(section.fields).forEach(function(field) {
       sec.appendChild(makeGenericField(section, field));
     });
@@ -444,18 +444,31 @@ function bindGenericConditionUpdates(container) {
 }
 
 function updateGenericConditions(container) {
+  var sections = Array.prototype.slice.call(container.querySelectorAll(".sec"));
   var rows = Array.prototype.slice.call(container.querySelectorAll(".nrow")).filter(function(row) {
     return row.querySelector(".generic-input");
   });
   var stable = false;
-  for (var pass = 0; pass <= rows.length; pass += 1) {
+  for (var pass = 0; pass <= rows.length + sections.length; pass += 1) {
     var values = NasukeruGenericValues.collectTypedValues(container);
     var changed = false;
+    sections.forEach(function(sec) {
+      var visible = sec.genericVisibleIf
+        ? NasukeruConditionEngine.evaluateCondition(sec.genericVisibleIf, values)
+        : true;
+      if (sec.hidden === visible) {
+        sec.hidden = !visible;
+        changed = true;
+      }
+    });
     rows.forEach(function(row) {
       var input = row.querySelector(".generic-input");
-      var visible = row.genericVisibleIf
+      var ownVisible = row.genericVisibleIf
         ? NasukeruConditionEngine.evaluateCondition(row.genericVisibleIf, values)
         : true;
+      var parentSec = row.closest(".sec");
+      var sectionVisible = parentSec ? !parentSec.hidden : true;
+      var visible = ownVisible && sectionVisible;
       if (row.hidden === visible) {
         row.hidden = !visible;
         changed = true;
@@ -593,9 +606,12 @@ function renderStrokeBody(st) {
   rsec.appendChild(ropts); body.appendChild(rsec);
 }
 
-function makeSec(title) {
+function makeSec(section) {
+  var isSection = section && typeof section === "object";
   var sec = document.createElement("div"); sec.className = "sec";
-  var t = document.createElement("div"); t.className = "sec-title"; t.textContent = title;
+  if (isSection && section.id) sec.dataset.sectionId = section.id;
+  sec.genericVisibleIf = (isSection && section.visibleIf) || null;
+  var t = document.createElement("div"); t.className = "sec-title"; t.textContent = isSection ? section.label : section;
   sec.appendChild(t);
   return sec;
 }

@@ -10,6 +10,7 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from template_schema import (
     SchemaValidationError,
+    collect_duplicate_section_conditions,
     collect_unreferenced_fields,
     detect_high_risk_changes,
     normalize_copy_format,
@@ -318,7 +319,7 @@ def validate_version_definition(row):
 
 
 def collect_template_warnings(schema, copy_format):
-    return collect_unreferenced_fields(schema, copy_format)
+    return collect_unreferenced_fields(schema, copy_format) + collect_duplicate_section_conditions(schema)
 
 
 def admin_template_detail_from_row(row):

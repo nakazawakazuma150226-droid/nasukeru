@@ -113,6 +113,39 @@ test("uses showIf with condition values", () => {
   );
 });
 
+test("optional conditional field stays on its own line instead of concatenating onto another value", () => {
+  // Regression test: a blank optional field must never be concatenated directly
+  // after another field's placeholder in the same text-line, since a blank value
+  // renders as a bare "__" with no label, which reads as a garbled attachment to
+  // whatever value precedes it (e.g. "ニカルジピン__" instead of a clearly labeled
+  // separate line).
+  const copyFormat = {
+    format: "text-v1",
+    lines: [
+      "降圧薬：{{treatment.antihypertensive}}、ニカルジピン速度：{{treatment.nicardipine_rate}}ml/h。",
+      {
+        text: "降圧薬その他：{{treatment.antihypertensive_other}}。",
+        showIf: { op: "contains", field: "treatment.antihypertensive", value: "その他" },
+      },
+    ],
+  };
+  const noOtherValues = {
+    "treatment.antihypertensive": "ニカルジピン",
+    "treatment.nicardipine_rate": "5",
+  };
+  const noOtherResult = renderer.renderGenericTemplateCopyResult(copyFormat, noOtherValues, noOtherValues);
+  assert.equal(noOtherResult.text, "降圧薬：ニカルジピン、ニカルジピン速度：5ml/h。");
+  assert.ok(!noOtherResult.text.includes("__"));
+
+  const withOtherValues = {
+    "treatment.antihypertensive": "その他",
+    "treatment.antihypertensive_other": "ワーファリン",
+    "treatment.nicardipine_rate": "",
+  };
+  const withOtherResult = renderer.renderGenericTemplateCopyResult(copyFormat, withOtherValues, withOtherValues);
+  assert.equal(withOtherResult.text, "降圧薬：その他、ニカルジピン速度：__ml/h。\n降圧薬その他：ワーファリン。");
+});
+
 test("returns structured render result with unresolved refs", () => {
   const copyFormat = {
     format: "text-v1",

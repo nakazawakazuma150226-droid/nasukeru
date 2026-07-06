@@ -434,9 +434,9 @@ def assert_stroke_copy_output(client, failures):
     if not matched:
         failures.append(("stroke copy omits blank labels", "no labels for blank values", partial_output))
 
-    extra_values = {**cases[1][1], "stroke_findings.left_mouth_droop": "あり"}
+    extra_values = {**cases[1][1], "stroke_findings.mouth_droop": "右"}
     extra_output = render_generic_copy(copy_format, extra_values)
-    matched = "左口角下垂：あり" in extra_output and "左口角下垂：__" not in render_generic_copy(copy_format, cases[1][1])
+    matched = "口角下垂：右" in extra_output and "口角下垂：__" not in render_generic_copy(copy_format, cases[1][1])
     print((" OK " if matched else "FAIL") + " stroke copy extra fields are optional")
     if not matched:
         failures.append(("stroke copy extra fields are optional", "optional extra output", extra_output))
@@ -464,7 +464,7 @@ def run_write_tests(failures):
                 lambda item: item["schema_format"] == "generic-v1"
                 and any(
                     section["id"] == "stroke_findings"
-                    and any(field["id"] == "left_mouth_droop" for field in section["fields"])
+                    and any(field["id"] == "mouth_droop" for field in section["fields"])
                     for section in item["schema"]["sections"]
                 )
                 and any(

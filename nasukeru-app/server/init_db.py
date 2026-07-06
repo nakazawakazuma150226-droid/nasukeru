@@ -142,11 +142,14 @@ TEMPLATE_GROUPS = [
     }
 ]
 
+STROKE_SIDE_OPTIONS = ["なし", "右", "左", "両側"]
+STROKE_HORIZONTAL_NYSTAGMUS_OPTIONS = ["なし", "右方視時", "左方視時", "両方向"]
+
 STROKE_EXTRA_FIELDS = {
     "mca": [
-        {"id": "left_mouth_droop", "label": "左口角下垂", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "mouth_droop", "label": "口角下垂", "type": "select", "options": STROKE_SIDE_OPTIONS, "allowEmpty": True},
         {"id": "dysarthria", "label": "構音障害", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
-        {"id": "left_sensory_dullness", "label": "左半身感覚鈍麻", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "sensory_dullness", "label": "半身感覚鈍麻", "type": "select", "options": STROKE_SIDE_OPTIONS, "allowEmpty": True},
     ],
     "aca": [
         {"id": "spontaneity_decrease", "label": "自発性低下", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
@@ -154,9 +157,9 @@ STROKE_EXTRA_FIELDS = {
         {"id": "excretion", "label": "排泄", "type": "text", "allowEmpty": True, "placeholder": "例: 尿失禁にて経過"},
     ],
     "pca": [
-        {"id": "left_homonymous_hemianopia", "label": "左同名半盲", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "homonymous_hemianopia", "label": "同名半盲", "type": "select", "options": STROKE_SIDE_OPTIONS, "allowEmpty": True},
         {"id": "visual_impairment", "label": "視覚障害", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
-        {"id": "left_sensory_dullness", "label": "左半身感覚鈍麻", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "sensory_dullness", "label": "半身感覚鈍麻", "type": "select", "options": STROKE_SIDE_OPTIONS, "allowEmpty": True},
         {"id": "dysarthria", "label": "構音障害", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
     ],
     "lacunar": [
@@ -165,7 +168,7 @@ STROKE_EXTRA_FIELDS = {
         {"id": "sensory_disturbance", "label": "感覚障害", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
     ],
     "brainstem": [
-        {"id": "horizontal_nystagmus_right_gaze", "label": "右方視時の水平性眼振", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
+        {"id": "horizontal_nystagmus", "label": "水平性眼振", "type": "select", "options": STROKE_HORIZONTAL_NYSTAGMUS_OPTIONS, "allowEmpty": True},
         {"id": "diplopia", "label": "複視", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
         {"id": "dysphagia", "label": "嚥下障害", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},
         {"id": "dysarthria", "label": "構音障害", "type": "select", "options": ["なし", "あり"], "allowEmpty": True},

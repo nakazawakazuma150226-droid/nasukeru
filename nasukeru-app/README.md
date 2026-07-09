@@ -205,6 +205,7 @@ SQLite DB
 - ネスト条件や高度なcopy_formatはDeveloper Mode / JSONで編集する
 - 通常画面のクイックリストと検索は `target` で明示的に `template` または `group` を開く
 - 脳梗塞5テンプレートは `cerebral_infarction` groupとして表示し、group内タブは既存generic rendererを再利用する
+- コピー出力は単一の `text-v1` に加えて、複数の名前付き出力を切り替える `multi-v1` に対応する
 
 脳梗塞5テンプレートは `generic-v1` へ移行済みです。共通項目に加えて、MCA/ACA/PCA/ラクナ/脳幹ごとの個別観察項目を空欄フィールドとして持ちます。既存の `stroke-v1` 版は履歴に残し、DB初期化時のマイグレーション `004` で新バージョンとして適用します。マイグレーション `005` では、既存stroke項目だけを入力した場合に旧 `stroke-v1` のコピー出力と一致する `copy_format_json` へ更新します。
 

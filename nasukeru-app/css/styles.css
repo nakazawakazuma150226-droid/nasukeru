@@ -136,6 +136,10 @@ body{font-family:"Yu Gothic UI","Yu Gothic","Meiryo",sans-serif;background:var(-
 .warn.block{background:#fef2f2;border-color:#fecaca;color:#991b1b}
 .warn-title{font-weight:600;margin-bottom:2px}
 .warn-list{margin:0;padding-left:18px}
+.copy-variant{display:none;align-items:center;gap:8px}
+.copy-variant.show{display:flex}
+.copy-variant label{font-size:12px;font-weight:700;color:var(--t2)}
+.copy-variant select{min-width:180px;max-width:100%;border:1px solid var(--bdr);border-radius:var(--r);padding:7px 9px;background:var(--sur);color:var(--t1);font-size:12px}
 .prev{background:var(--sur2);border:1px solid var(--bdr);border-radius:var(--r);padding:12px 14px;font-family:"Consolas","Yu Gothic UI",monospace;font-size:11px;line-height:1.8;color:var(--t1);white-space:pre-wrap;max-height:360px;overflow-y:auto;resize:vertical}
 .cact{display:flex;gap:7px;justify-content:flex-end;align-items:center}
 .chnt{font-size:11px;color:var(--tm);margin-right:auto}

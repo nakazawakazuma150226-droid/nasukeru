@@ -14,6 +14,7 @@ BLANK_POLICIES = ("allow", "warn", "block")
 CONDITION_OPS = ("eq", "neq", "in", "not_in", "contains", "gt", "gte", "lt", "lte", "is_blank", "and", "or", "not")
 CONDITION_MAX_DEPTH = 10
 COPY_FORMAT_TEXT_V1 = "text-v1"
+COPY_FORMAT_MULTI_V1 = "multi-v1"
 
 REQUIRED_VITAL_KEYS = ("jcs", "t", "bp", "hr", "spo2")
 REQUIRED_SYMPTOM_KEYS = ("headache", "dizzy", "nausea")
@@ -564,17 +565,42 @@ def validate_copy_format(copy_format):
     if copy_format is None:
         return None
     require_object(copy_format, "copy_format")
-    reject_unknown_keys(copy_format, ("format", "lines"), "copy_format")
-    require_keys(copy_format, ("format", "lines"), "copy_format")
+    require_keys(copy_format, ("format",), "copy_format")
     fmt = require_text(copy_format["format"], "copy_format.format")
-    if fmt != COPY_FORMAT_TEXT_V1:
-        raise SchemaValidationError("copy_format.format must be text-v1")
-    lines = copy_format["lines"]
+    if fmt == COPY_FORMAT_TEXT_V1:
+        reject_unknown_keys(copy_format, ("format", "lines"), "copy_format")
+        require_keys(copy_format, ("format", "lines"), "copy_format")
+        validate_copy_lines(copy_format["lines"], "copy_format.lines")
+        return copy_format
+    if fmt == COPY_FORMAT_MULTI_V1:
+        reject_unknown_keys(copy_format, ("format", "variants"), "copy_format")
+        require_keys(copy_format, ("format", "variants"), "copy_format")
+        variants = copy_format["variants"]
+        if not isinstance(variants, list) or not variants:
+            raise SchemaValidationError("copy_format.variants must be a non-empty array")
+        seen = set()
+        for index, variant in enumerate(variants):
+            field = f"copy_format.variants[{index}]"
+            require_object(variant, field)
+            reject_unknown_keys(variant, ("id", "label", "lines"), field)
+            require_keys(variant, ("id", "label", "lines"), field)
+            variant_id = require_text(variant["id"], f"{field}.id")
+            if not SCHEMA_ID_PATTERN.fullmatch(variant_id):
+                raise SchemaValidationError(f"{field}.id must match ^[a-z0-9_-]{{1,32}}$")
+            if variant_id in seen:
+                raise SchemaValidationError(f"{field}.id must be unique")
+            seen.add(variant_id)
+            require_text(variant["label"], f"{field}.label")
+            validate_copy_lines(variant["lines"], f"{field}.lines")
+        return copy_format
+    raise SchemaValidationError("copy_format.format must be text-v1 or multi-v1")
+
+
+def validate_copy_lines(lines, field):
     if not isinstance(lines, list):
-        raise SchemaValidationError("copy_format.lines must be an array")
+        raise SchemaValidationError(f"{field} must be an array")
     for index, line in enumerate(lines):
-        validate_copy_line(line, f"copy_format.lines[{index}]")
-    return copy_format
+        validate_copy_line(line, f"{field}[{index}]")
 
 
 def validate_copy_line(line, field):
@@ -625,8 +651,26 @@ def normalize_copy_format(copy_format):
     validate_copy_format(copy_format)
     if copy_format is None:
         return None
+    if copy_format["format"] == COPY_FORMAT_MULTI_V1:
+        variants = []
+        for variant in copy_format["variants"]:
+            variants.append(
+                ordered_with_known_keys(
+                    {
+                        **variant,
+                        "lines": normalize_copy_lines(variant["lines"]),
+                    },
+                    ("id", "label", "lines"),
+                )
+            )
+        return ordered_with_known_keys({**copy_format, "variants": variants}, ("format", "variants"))
+    normalized_lines = normalize_copy_lines(copy_format["lines"])
+    return ordered_with_known_keys({**copy_format, "lines": normalized_lines}, ("format", "lines"))
+
+
+def normalize_copy_lines(lines):
     normalized_lines = []
-    for line in copy_format["lines"]:
+    for line in lines:
         if isinstance(line, str):
             normalized_lines.append(line)
         else:
@@ -636,7 +680,17 @@ def normalize_copy_format(copy_format):
                     ("text", "segments", "prefix", "separator", "splitLinesFrom", "omitIfAllBlank", "showIf"),
                 )
             )
-    return ordered_with_known_keys({**copy_format, "lines": normalized_lines}, ("format", "lines"))
+    return normalized_lines
+
+
+def iter_copy_format_variants(copy_format):
+    if not copy_format:
+        return
+    if copy_format.get("format") == COPY_FORMAT_MULTI_V1:
+        for variant in copy_format.get("variants", []):
+            yield variant.get("id"), variant.get("label"), variant.get("lines", [])
+        return
+    yield "default", "標準", copy_format.get("lines", [])
 
 
 def collect_generic_field_refs(schema):
@@ -694,19 +748,26 @@ def collect_unreferenced_fields(schema, copy_format):
     if copy_format is None or schema_format(schema) not in (SCHEMA_FORMAT_GENERIC_V1, SCHEMA_FORMAT_GENERIC_V2):
         return []
     output_refs = set()
-    for line in copy_format.get("lines", []):
-        output_refs.update(iter_copy_line_output_refs(line))
+    variant_output_refs = {}
+    for variant_id, variant_label, lines in iter_copy_format_variants(copy_format):
+        refs = set()
+        for line in lines:
+            refs.update(iter_copy_line_output_refs(line))
+        variant_output_refs[variant_id] = (variant_label, refs)
+        output_refs.update(refs)
     warnings = []
+    fields = []
     for section in schema["sections"]:
         section_label = section.get("label") or section.get("id")
         section_conditional = bool(section.get("visibleIf"))
         for field in section["fields"]:
             ref = f"{section['id']}.{field['id']}"
-            if ref in output_refs:
-                continue
             field_label = field.get("label") or field.get("id")
             suffix = "（条件付き表示）" if field.get("visibleIf") or section_conditional else ""
             label = f"{section_label} > {field_label}{suffix}"
+            fields.append((ref, label))
+            if ref in output_refs:
+                continue
             warnings.append(
                 {
                     "code": "unreferenced_field",
@@ -715,6 +776,21 @@ def collect_unreferenced_fields(schema, copy_format):
                     "message": f"入力項目『{label}』はコピー出力に含まれていません",
                 }
             )
+    if copy_format.get("format") == COPY_FORMAT_MULTI_V1:
+        for variant_id, (variant_label, refs) in variant_output_refs.items():
+            for ref, label in fields:
+                if ref not in output_refs or ref in refs:
+                    continue
+                warnings.append(
+                    {
+                        "code": "variant_unreferenced_field",
+                        "fieldRef": ref,
+                        "label": label,
+                        "variantId": variant_id,
+                        "variantLabel": variant_label,
+                        "message": f"入力項目『{label}』は出力形式『{variant_label}』に含まれていません",
+                    }
+                )
     return warnings
 
 
@@ -776,14 +852,16 @@ def validate_copy_format_references(schema, copy_format):
     allowed_refs = collect_generic_field_refs(schema)
     field_refs = generic_field_refs(schema)
     unknown_refs = []
-    for line in copy_format["lines"]:
-        if isinstance(line, dict) and "showIf" in line:
-            if schema_format(schema) != SCHEMA_FORMAT_GENERIC_V2:
-                raise SchemaValidationError("copy_format.lines[].showIf requires generic-v2")
-            validate_condition(line["showIf"], field_refs, "copy_format.lines[].showIf")
-        for ref in iter_copy_line_refs(line):
-            if ref not in allowed_refs:
-                unknown_refs.append(ref)
+    for variant_id, _variant_label, lines in iter_copy_format_variants(copy_format):
+        location = "copy_format.lines[]" if copy_format.get("format") == COPY_FORMAT_TEXT_V1 else f"copy_format.variants[{variant_id}].lines[]"
+        for line in lines:
+            if isinstance(line, dict) and "showIf" in line:
+                if schema_format(schema) != SCHEMA_FORMAT_GENERIC_V2:
+                    raise SchemaValidationError(f"{location}.showIf requires generic-v2")
+                validate_condition(line["showIf"], field_refs, f"{location}.showIf")
+            for ref in iter_copy_line_refs(line):
+                if ref not in allowed_refs:
+                    unknown_refs.append(ref)
     if unknown_refs:
         unique_refs = []
         for ref in unknown_refs:
@@ -838,6 +916,15 @@ def normalized_copy_lines(copy_format):
     return [repr(line) for line in copy_format.get("lines", [])]
 
 
+def normalized_copy_line_groups(copy_format):
+    if not copy_format:
+        return {}
+    return {
+        variant_id: [repr(line) for line in lines]
+        for variant_id, _variant_label, lines in iter_copy_format_variants(copy_format)
+    }
+
+
 def detect_high_risk_changes(before_schema, after_schema, before_copy_format=None, after_copy_format=None):
     changes = []
     before_fields = collect_generic_fields(before_schema)
@@ -867,10 +954,18 @@ def detect_high_risk_changes(before_schema, after_schema, before_copy_format=Non
         if range_relaxed(before_field.get("hardRange"), after_field.get("hardRange")):
             changes.append({"code": "hard_range_relaxed", "fieldRef": ref, "message": f"{label}のhardRangeが緩和されました"})
 
-    before_lines = normalized_copy_lines(before_copy_format)
-    after_lines = normalized_copy_lines(after_copy_format)
-    if len(after_lines) < len(before_lines) or any(line not in after_lines for line in before_lines):
-        changes.append({"code": "copy_line_deleted", "fieldRef": "", "message": "copy_formatの行が削除または変更されました"})
+    before_groups = normalized_copy_line_groups(before_copy_format)
+    after_groups = normalized_copy_line_groups(after_copy_format)
+    after_default_lines = next(iter(after_groups.values()), [])
+    for variant_id, before_lines in before_groups.items():
+        after_lines = after_groups.get(variant_id)
+        if after_lines is None and variant_id == "default":
+            after_lines = after_default_lines
+        if after_lines is None:
+            changes.append({"code": "copy_variant_deleted", "fieldRef": "", "message": f"copy_formatの出力形式 {variant_id} が削除されました"})
+            continue
+        if len(after_lines) < len(before_lines) or any(line not in after_lines for line in before_lines):
+            changes.append({"code": "copy_line_deleted", "fieldRef": "", "message": f"copy_formatの行が削除または変更されました（{variant_id}）"})
     return changes
 
 

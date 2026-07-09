@@ -116,6 +116,27 @@ GENERIC_COPY_FORMAT = {
 }
 
 
+MULTI_GENERIC_COPY_FORMAT = {
+    "format": "multi-v1",
+    "variants": [
+        {
+            "id": "progress",
+            "label": "経過記録用",
+            "lines": [
+                "Progress: {{basic.procedure}}",
+            ],
+        },
+        {
+            "id": "summary",
+            "label": "サマリ用",
+            "lines": [
+                "Summary: {{basic.status}}",
+            ],
+        },
+    ],
+}
+
+
 EXTENDED_GENERIC_SCHEMA = {
     "schemaFormat": "generic-v1",
     "sections": [
@@ -265,6 +286,8 @@ def should_omit_line(line, values):
 
 
 def render_generic_copy(copy_format, values):
+    if copy_format.get("format") == "multi-v1":
+        copy_format = {"format": "text-v1", "lines": copy_format["variants"][0]["lines"]}
     lines = []
     for line in copy_format["lines"]:
         if isinstance(line, str):
@@ -1179,6 +1202,48 @@ def run_write_tests(failures):
                 no_copy_response,
                 lambda item: not item.get("warnings"),
                 "POST /api/templates generic-v1 copy_format null has no warnings",
+                failures,
+            )
+
+            multi_payload = copy.deepcopy(generic_payload)
+            multi_payload["id"] = "generic_multi"
+            multi_payload["label"] = "GENERIC_MULTI"
+            multi_payload["full"] = "Generic multi copy template"
+            multi_payload["copy_format"] = MULTI_GENERIC_COPY_FORMAT
+            multi_response = client.post("/api/templates", json=multi_payload, headers=LOCAL_HEADERS)
+            assert_status(multi_response, 409, "POST /api/templates multi-v1 requires variant confirmation", failures)
+            assert_json_contains(
+                multi_response,
+                lambda item: any(
+                    warning["code"] == "variant_unreferenced_field"
+                    and warning["variantId"] in {"progress", "summary"}
+                    for warning in item.get("unreferenced_fields", [])
+                ),
+                "POST /api/templates multi-v1 returns variant unreferenced warnings",
+                failures,
+            )
+            multi_payload["confirm_unreferenced"] = True
+            multi_confirmed = client.post("/api/templates", json=multi_payload, headers=LOCAL_HEADERS)
+            assert_status(multi_confirmed, 201, "POST /api/templates multi-v1 confirmed", failures)
+            multi_versions = client.get("/api/templates/generic_multi/versions")
+            multi_initial_version_id = multi_versions.get_json()[0]["id"]
+            multi_publish = client.post(
+                f"/api/templates/generic_multi/versions/{multi_initial_version_id}/publish",
+                json={"reason": "publish multi", "confirm_unreferenced": True},
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(multi_publish, 200, "POST /api/templates multi-v1 initial publish", failures)
+            assert_json_contains(
+                client.get("/api/templates/generic_multi"),
+                lambda item: item["copy_format"]["format"] == "multi-v1"
+                and [variant["id"] for variant in item["copy_format"]["variants"]] == ["progress", "summary"],
+                "GET /api/templates/generic_multi returns multi-v1 copy format",
+                failures,
+            )
+            assert_json_contains(
+                client.get("/api/admin/templates/generic_multi"),
+                lambda item: any(warning["code"] == "variant_unreferenced_field" for warning in item.get("warnings", [])),
+                "GET /api/admin/templates/generic_multi returns variant warnings",
                 failures,
             )
 

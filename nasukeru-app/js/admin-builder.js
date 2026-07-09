@@ -132,7 +132,15 @@
 
   function copyOutputRefs(copyFormat) {
     var refs = {};
-    (copyFormat.lines || []).forEach(function(line) {
+    var lines = [];
+    if (copyFormat && copyFormat.format === "multi-v1" && Array.isArray(copyFormat.variants)) {
+      copyFormat.variants.forEach(function(variant) {
+        lines = lines.concat(variant.lines || []);
+      });
+    } else {
+      lines = (copyFormat && copyFormat.lines) || [];
+    }
+    lines.forEach(function(line) {
       var lineObj = typeof line === "string" ? { text: line } : line;
       placeholderRefs(lineObj.text || "").forEach(function(ref) { refs[ref] = true; });
       (lineObj.segments || []).forEach(function(segment) {

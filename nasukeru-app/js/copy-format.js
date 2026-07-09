@@ -1,13 +1,19 @@
 // ── Copy output ──
 var currentCopyCard = null;
+var currentCopyVariantId = "";
 var currentCopySafetyResult = { blocks: [], warnings: [] };
 var currentCopyRenderResult = { text: "", unresolvedRefs: [], warnings: [] };
 function openCov(card) {
+  if (currentCopyCard !== card) currentCopyVariantId = "";
   currentCopyCard = card;
   buildCopyText();
   document.getElementById("cov").classList.add("show");
 }
-function closeCov() { document.getElementById("cov").classList.remove("show"); currentCopyCard = null; }
+function closeCov() {
+  document.getElementById("cov").classList.remove("show");
+  renderCopyVariantSelector(null);
+  currentCopyCard = null;
+}
 
 function buildCopyText() {
   if (!currentCopyCard) return;
@@ -21,6 +27,7 @@ function buildCopyText() {
     blocks: [{ fieldRef: "", code: "unsupported_template_format", severity: "block", message: "このテンプレート形式は通常画面では表示できません" }],
     warnings: [],
   };
+  renderCopyVariantSelector(null);
   renderSafetyValidation(currentCopySafetyResult);
   document.getElementById("prev").textContent = "";
 }
@@ -28,9 +35,16 @@ function buildCopyText() {
 function buildGenericCopyText() {
   var copyFormat = currentCopyCard.copyFormat;
   if (copyFormat && copyFormat.format === "text-v1" && Array.isArray(copyFormat.lines)) {
+    renderCopyVariantSelector(copyFormat);
     buildGenericTemplateCopyText(copyFormat);
     return;
   }
+  if (copyFormat && copyFormat.format === "multi-v1" && Array.isArray(copyFormat.variants)) {
+    renderCopyVariantSelector(copyFormat);
+    buildGenericTemplateCopyText(copyFormat);
+    return;
+  }
+  renderCopyVariantSelector(null);
 
   var lines = [];
   var titleEl = currentCopyCard.querySelector(".stroke-title");
@@ -53,6 +67,37 @@ function buildGenericCopyText() {
   });
 
   document.getElementById("prev").textContent = lines.join("\n");
+}
+
+function renderCopyVariantSelector(copyFormat) {
+  var wrap = document.getElementById("copy-variant-wrap");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  if (!copyFormat || copyFormat.format !== "multi-v1" || !Array.isArray(copyFormat.variants) || copyFormat.variants.length < 2) {
+    wrap.classList.remove("show");
+    return;
+  }
+  var selected = NasukeruCopyRenderer.selectedCopyVariant(copyFormat, currentCopyVariantId);
+  currentCopyVariantId = selected ? selected.id : "";
+  var label = document.createElement("label");
+  label.setAttribute("for", "copy-variant-select");
+  label.textContent = "出力形式";
+  var select = document.createElement("select");
+  select.id = "copy-variant-select";
+  copyFormat.variants.forEach(function(variant) {
+    var option = document.createElement("option");
+    option.value = variant.id;
+    option.textContent = variant.label || variant.id;
+    option.selected = variant.id === currentCopyVariantId;
+    select.appendChild(option);
+  });
+  select.addEventListener("change", function() {
+    currentCopyVariantId = select.value;
+    buildCopyText();
+  });
+  wrap.appendChild(label);
+  wrap.appendChild(select);
+  wrap.classList.add("show");
 }
 
 function collectGenericValues() {
@@ -79,9 +124,10 @@ function genericInputValueForCopy(input) {
 function buildGenericTemplateCopyText(copyFormat) {
   var values = collectGenericValues();
   var conditionValues = collectGenericConditionValues();
-  var result = NasukeruCopyRenderer.renderGenericTemplateCopyResult(copyFormat, values, conditionValues);
+  var result = NasukeruCopyRenderer.renderGenericTemplateCopyResult(copyFormat, values, conditionValues, currentCopyVariantId);
   currentCopyRenderResult = result;
   currentCopySafetyResult = mergeCopyRenderWarnings(currentCopySafetyResult, result);
+  currentCopySafetyResult = mergeSelectedVariantInputWarnings(currentCopySafetyResult, result, values);
   document.getElementById("prev").textContent = result.text;
 }
 
@@ -114,6 +160,30 @@ function mergeCopyRenderWarnings(safetyResult, renderResult) {
       code: "unresolved_copy_ref",
       severity: "warn",
       message: (meta[ref] && meta[ref].label ? meta[ref].label : ref) + "が未入力のままコピー文に含まれています",
+    });
+  });
+  return result;
+}
+
+function mergeSelectedVariantInputWarnings(safetyResult, renderResult, values) {
+  if (!currentCopyCard || !currentCopyCard.copyFormat || currentCopyCard.copyFormat.format !== "multi-v1") {
+    return safetyResult;
+  }
+  var result = {
+    blocks: ((safetyResult && safetyResult.blocks) || []).slice(),
+    warnings: ((safetyResult && safetyResult.warnings) || []).slice(),
+  };
+  var outputRefs = (renderResult && renderResult.outputRefs) || [];
+  var variant = (renderResult && renderResult.variant) || {};
+  var meta = genericFieldMetaByRef(currentCopyCard);
+  Object.keys(values || {}).forEach(function(ref) {
+    if (outputRefs.indexOf(ref) >= 0) return;
+    if (NasukeruGenericValues.isBlankValue(values[ref])) return;
+    result.warnings.push({
+      fieldRef: ref,
+      code: "variant_unreferenced_input",
+      severity: "warn",
+      message: (meta[ref] && meta[ref].label ? meta[ref].label : ref) + "は出力形式「" + (variant.label || variant.id || "選択中") + "」に含まれていません",
     });
   });
   return result;

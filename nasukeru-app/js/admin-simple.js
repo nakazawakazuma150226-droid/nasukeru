@@ -610,7 +610,7 @@
         genericRenderer.updateConditions(formSide);
         var values = genericRenderer.collectCopyValues(formSide);
         var conditionValues = genericRenderer.collectConditionValues(formSide);
-        if (!copyFormat || !Array.isArray(copyFormat.lines)) {
+        if (!copyFormat || (copyFormat.format !== "text-v1" && copyFormat.format !== "multi-v1")) {
           pre.textContent = "";
           return;
         }

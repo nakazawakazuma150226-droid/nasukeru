@@ -163,3 +163,45 @@ test("returns structured render result with unresolved refs", () => {
   assert.deepEqual(result.unresolvedRefs, ["vitals.spo2"]);
   assert.deepEqual(result.warnings, []);
 });
+
+test("renders selected multi-v1 variant", () => {
+  const copyFormat = {
+    format: "multi-v1",
+    variants: [
+      {
+        id: "progress",
+        label: "経過記録用",
+        lines: ["Progress: {{basic.procedure}}"],
+      },
+      {
+        id: "summary",
+        label: "サマリ用",
+        lines: ["Summary: {{basic.status}}"],
+      },
+    ],
+  };
+  const values = {
+    "basic.procedure": "drain check",
+    "basic.status": "stable",
+  };
+  const progress = renderer.renderGenericTemplateCopyResult(copyFormat, values, values, "progress");
+  const summary = renderer.renderGenericTemplateCopyResult(copyFormat, values, values, "summary");
+  assert.equal(progress.text, "Progress: drain check");
+  assert.equal(summary.text, "Summary: stable");
+  assert.deepEqual(summary.variant, { id: "summary", label: "サマリ用" });
+  assert.deepEqual(summary.outputRefs, ["basic.status"]);
+});
+
+test("multi-v1 falls back to first variant", () => {
+  const copyFormat = {
+    format: "multi-v1",
+    variants: [
+      { id: "first", label: "First", lines: ["First {{a.x}}"] },
+      { id: "second", label: "Second", lines: ["Second {{a.y}}"] },
+    ],
+  };
+  assert.equal(
+    renderer.renderGenericTemplateCopyText(copyFormat, { "a.x": "1", "a.y": "2" }, {}, "unknown"),
+    "First 1"
+  );
+});

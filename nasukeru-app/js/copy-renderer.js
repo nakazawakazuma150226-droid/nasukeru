@@ -8,6 +8,47 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function(conditionEngine, blank) {
   var PLACEHOLDER_RE = /\{\{\s*([a-z0-9_-]+)\.([a-z0-9_-]+)\s*\}\}/g;
 
+  function selectedCopyVariant(copyFormat, variantId) {
+    if (!copyFormat) return null;
+    if (copyFormat.format === "multi-v1" && Array.isArray(copyFormat.variants)) {
+      return copyFormat.variants.find(function(variant) {
+        return variant.id === variantId;
+      }) || copyFormat.variants[0] || null;
+    }
+    if (copyFormat.format === "text-v1") {
+      return { id: "default", label: "標準", lines: copyFormat.lines || [] };
+    }
+    return null;
+  }
+
+  function collectCopyLineOutputRefs(line, refs) {
+    refs = refs || [];
+    var text = typeof line === "string" ? line : (line && line.text) || "";
+    var match;
+    PLACEHOLDER_RE.lastIndex = 0;
+    while ((match = PLACEHOLDER_RE.exec(text))) {
+      var ref = match[1] + "." + match[2];
+      if (refs.indexOf(ref) < 0) refs.push(ref);
+    }
+    if (line && typeof line === "object") {
+      (line.segments || []).forEach(function(segment) {
+        if (segment.ref && refs.indexOf(segment.ref) < 0) refs.push(segment.ref);
+      });
+      if (line.splitLinesFrom && refs.indexOf(line.splitLinesFrom) < 0) refs.push(line.splitLinesFrom);
+    }
+    return refs;
+  }
+
+  function collectVariantOutputRefs(copyFormat, variantId) {
+    var variant = selectedCopyVariant(copyFormat, variantId);
+    var refs = [];
+    if (!variant) return refs;
+    (variant.lines || []).forEach(function(line) {
+      collectCopyLineOutputRefs(line, refs);
+    });
+    return refs;
+  }
+
   function valueFor(values, ref, unresolvedRefs) {
     var value = values[ref];
     if (blank.isBlank(value)) {
@@ -56,10 +97,14 @@
     return true;
   }
 
-  function renderGenericTemplateCopyResult(copyFormat, values, conditionValues) {
+  function renderGenericTemplateCopyResult(copyFormat, values, conditionValues, variantId) {
+    var variant = selectedCopyVariant(copyFormat, variantId);
     var lines = [];
     var unresolvedRefs = [];
-    copyFormat.lines.forEach(function(line) {
+    if (!variant) {
+      return { text: "", unresolvedRefs: [], warnings: [], variant: null, outputRefs: [] };
+    }
+    variant.lines.forEach(function(line) {
       if (typeof line === "string") {
         lines.push(renderCopyLine(line, values, null, null, unresolvedRefs));
         return;
@@ -78,17 +123,21 @@
       text: lines.join("\n"),
       unresolvedRefs: unresolvedRefs,
       warnings: [],
+      variant: { id: variant.id, label: variant.label },
+      outputRefs: collectVariantOutputRefs(copyFormat, variant.id),
     };
   }
 
-  function renderGenericTemplateCopyText(copyFormat, values, conditionValues) {
-    return renderGenericTemplateCopyResult(copyFormat, values, conditionValues).text;
+  function renderGenericTemplateCopyText(copyFormat, values, conditionValues, variantId) {
+    return renderGenericTemplateCopyResult(copyFormat, values, conditionValues, variantId).text;
   }
 
   return {
+    collectVariantOutputRefs: collectVariantOutputRefs,
     renderCopyLine: renderCopyLine,
     renderGenericTemplateCopyResult: renderGenericTemplateCopyResult,
     renderGenericTemplateCopyText: renderGenericTemplateCopyText,
+    selectedCopyVariant: selectedCopyVariant,
     shouldOmitCopyLine: shouldOmitCopyLine,
   };
 });

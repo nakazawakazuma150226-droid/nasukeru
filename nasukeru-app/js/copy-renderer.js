@@ -1,22 +1,16 @@
 (function(root, factory) {
-  var renderer = factory(root.NasukeruConditionEngine);
   if (typeof module === "object" && module.exports) {
-    module.exports = factory(require("./condition-engine.js"));
+    module.exports = factory(require("./condition-engine.js"), require("./blank.js"));
+    return;
   }
+  var renderer = factory(root.NasukeruConditionEngine, root.NasukeruBlank);
   root.NasukeruCopyRenderer = renderer;
-})(typeof globalThis !== "undefined" ? globalThis : this, function(conditionEngine) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function(conditionEngine, blank) {
   var PLACEHOLDER_RE = /\{\{\s*([a-z0-9_-]+)\.([a-z0-9_-]+)\s*\}\}/g;
-
-  function isBlank(value) {
-    if (Array.isArray(value)) return value.length === 0;
-    if (value === null || value === undefined) return true;
-    if (typeof value === "number") return false;
-    return !String(value).trim();
-  }
 
   function valueFor(values, ref, unresolvedRefs) {
     var value = values[ref];
-    if (isBlank(value)) {
+    if (blank.isBlank(value)) {
       if (unresolvedRefs && unresolvedRefs.indexOf(ref) < 0) unresolvedRefs.push(ref);
       return "__";
     }
@@ -26,7 +20,7 @@
   function renderCopyLine(text, values, overrideRef, overrideValue, unresolvedRefs) {
     return String(text || "").replace(PLACEHOLDER_RE, function(match, sectionId, fieldId) {
       var ref = sectionId + "." + fieldId;
-      if (ref === overrideRef) return isBlank(overrideValue) ? "__" : overrideValue;
+      if (ref === overrideRef) return blank.isBlank(overrideValue) ? "__" : overrideValue;
       return valueFor(values, ref, unresolvedRefs);
     });
   }
@@ -36,7 +30,7 @@
     var parts = [];
     line.segments.forEach(function(segment) {
       var value = values[segment.ref];
-      if (isBlank(value)) return;
+      if (blank.isBlank(value)) return;
       parts.push(String(segment.label || "") + String(value) + String(segment.suffix || ""));
     });
     if (!parts.length) return null;
@@ -46,7 +40,7 @@
   function shouldOmitCopyLine(line, values) {
     if (!line || !Array.isArray(line.omitIfAllBlank)) return false;
     return line.omitIfAllBlank.every(function(ref) {
-      return isBlank(values[ref]);
+      return blank.isBlank(values[ref]);
     });
   }
 

@@ -307,6 +307,8 @@ def validate_condition(condition, field_refs, field, depth=0):
         raise SchemaValidationError(f"{field}.value is required")
     value = condition["value"]
     target_type = target.get("type")
+    if target_type == "multi_select" and op != "contains":
+        raise SchemaValidationError(f"{field}.field: multi_select only supports contains or is_blank conditions")
     if op in ("gt", "gte", "lt", "lte"):
         if target_type != "number":
             raise SchemaValidationError(f"{field}.field must reference a number field for {op}")

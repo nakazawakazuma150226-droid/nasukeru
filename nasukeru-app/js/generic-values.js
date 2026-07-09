@@ -1,10 +1,11 @@
 (function(root, factory) {
-  var api = factory();
   if (typeof module === "object" && module.exports) {
-    module.exports = api;
+    module.exports = factory(require("./blank.js"));
+    return;
   }
+  var api = factory(root.NasukeruBlank);
   root.NasukeruGenericValues = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function() {
+})(typeof globalThis !== "undefined" ? globalThis : this, function(blank) {
   function splitMultiValue(raw) {
     if (Array.isArray(raw)) return raw;
     return String(raw || "").split("、").filter(function(value) {
@@ -48,20 +49,13 @@
     if (input.value !== normalized) input.value = normalized;
   }
 
-  function isBlankValue(value) {
-    if (Array.isArray(value)) return value.length === 0;
-    if (value === null || value === undefined) return true;
-    if (typeof value === "number") return false;
-    return !String(value).trim();
-  }
-
   function optionLabel(input, value) {
     var labels = input.genericOptionLabels || {};
     return labels[value] || value;
   }
 
   function formatInputValueForCopy(input, value) {
-    if (isBlankValue(value)) return "";
+    if (blank.isBlank(value)) return "";
     if (input.dataset.fieldType === "multi_select") {
       return splitMultiValue(value).map(function(item) {
         return optionLabel(input, item);
@@ -110,7 +104,7 @@
     collectTypedValues: collectTypedValues,
     fieldRef: fieldRef,
     formatInputValueForCopy: formatInputValueForCopy,
-    isBlankValue: isBlankValue,
+    isBlankValue: blank.isBlank,
     parseInputValue: parseInputValue,
     normalizeNumberField: normalizeNumberField,
     normalizeNumberInput: normalizeNumberInput,

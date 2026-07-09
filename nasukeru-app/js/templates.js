@@ -83,17 +83,25 @@ async function createTemplateVersion(id, payload) {
   return postJson("/api/templates/" + encodeURIComponent(id) + "/versions", payload);
 }
 
-async function publishTemplateVersion(id, versionId, reason, confirmHighRisk) {
+async function publishTemplateVersion(id, versionId, reason, confirmHighRisk, confirmUnreferenced) {
   return postJson(
     "/api/templates/" + encodeURIComponent(id) + "/versions/" + encodeURIComponent(versionId) + "/publish",
-    { reason: reason, confirm_high_risk: Boolean(confirmHighRisk) }
+    {
+      reason: reason,
+      confirm_high_risk: Boolean(confirmHighRisk),
+      confirm_unreferenced: Boolean(confirmUnreferenced),
+    }
   );
 }
 
-async function rollbackTemplateVersion(id, versionId, reason, confirmHighRisk) {
+async function rollbackTemplateVersion(id, versionId, reason, confirmHighRisk, confirmUnreferenced) {
   return postJson(
     "/api/templates/" + encodeURIComponent(id) + "/versions/" + encodeURIComponent(versionId) + "/rollback",
-    { reason: reason, confirm_high_risk: Boolean(confirmHighRisk) }
+    {
+      reason: reason,
+      confirm_high_risk: Boolean(confirmHighRisk),
+      confirm_unreferenced: Boolean(confirmUnreferenced),
+    }
   );
 }
 

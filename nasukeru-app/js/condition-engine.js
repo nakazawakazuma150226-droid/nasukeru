@@ -1,17 +1,11 @@
 (function(root, factory) {
-  var api = factory();
   if (typeof module === "object" && module.exports) {
-    module.exports = api;
+    module.exports = factory(require("./blank.js"));
+    return;
   }
+  var api = factory(root.NasukeruBlank);
   root.NasukeruConditionEngine = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function() {
-  function isBlank(value) {
-    if (Array.isArray(value)) return value.length === 0;
-    if (value === null || value === undefined) return true;
-    if (typeof value === "number") return false;
-    return !String(value).trim();
-  }
-
+})(typeof globalThis !== "undefined" ? globalThis : this, function(blank) {
   function compareNumbers(left, right, op) {
     var a = Number(left);
     var b = Number(right);
@@ -42,7 +36,7 @@
 
     var actual = values ? values[condition.field] : undefined;
     var expected = condition.value;
-    if (op === "is_blank") return isBlank(actual);
+    if (op === "is_blank") return blank.isBlank(actual);
     if (op === "eq") return actual === expected;
     if (op === "neq") return actual !== expected;
     if (op === "in") return Array.isArray(expected) && expected.indexOf(actual) >= 0;
@@ -59,6 +53,6 @@
 
   return {
     evaluateCondition: evaluateCondition,
-    isBlank: isBlank,
+    isBlank: blank.isBlank,
   };
 });

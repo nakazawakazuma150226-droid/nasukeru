@@ -322,6 +322,23 @@ def collect_template_warnings(schema, copy_format):
     return collect_unreferenced_fields(schema, copy_format) + collect_duplicate_section_conditions(schema)
 
 
+def unreferenced_confirmation_response(unreferenced_fields):
+    return jsonify(
+        {
+            "ok": False,
+            "error": "unreferenced fields require confirmation",
+            "unreferenced_fields": unreferenced_fields,
+        }
+    ), 409
+
+
+def require_unreferenced_confirmation(payload, schema, copy_format):
+    unreferenced_fields = collect_unreferenced_fields(schema, copy_format)
+    if unreferenced_fields and payload.get("confirm_unreferenced") is not True:
+        return unreferenced_fields
+    return []
+
+
 def admin_template_detail_from_row(row):
     schema = parse_json_value(row["current_schema_json"])
     schema = normalize_db_template_schema(schema)
@@ -507,6 +524,9 @@ def create_template():
     schema_json = json_dumps(validated["schema"])
     copy_format_json = json_dumps(validated["copy_format"]) if validated["copy_format"] is not None else None
     warnings = collect_template_warnings(validated["schema"], validated["copy_format"])
+    unreferenced_fields = require_unreferenced_confirmation(payload, validated["schema"], validated["copy_format"])
+    if unreferenced_fields:
+        return unreferenced_confirmation_response(unreferenced_fields)
     change_summary = validated["change_summary"] or "Create template"
     conn = connect()
     try:
@@ -725,6 +745,10 @@ def publish_template_version(template_id, version_id):
                     "high_risk_changes": high_risk_changes,
                 }
             ), 409
+        unreferenced_fields = require_unreferenced_confirmation(payload, target_schema, target_copy_format)
+        if unreferenced_fields:
+            conn.rollback()
+            return unreferenced_confirmation_response(unreferenced_fields)
 
         conn.execute(
             """
@@ -817,6 +841,10 @@ def rollback_template_version(template_id, version_id):
                     "high_risk_changes": high_risk_changes,
                 }
             ), 409
+        unreferenced_fields = require_unreferenced_confirmation(payload, source_schema, source_copy_format)
+        if unreferenced_fields:
+            conn.rollback()
+            return unreferenced_confirmation_response(unreferenced_fields)
 
         version_number = conn.execute(
             """

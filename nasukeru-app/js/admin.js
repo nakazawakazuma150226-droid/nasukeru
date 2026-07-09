@@ -474,6 +474,14 @@ function renderSimpleCreateEditor(model) {
   var editor = NasukeruAdminSimple.create(mount, model);
   var reason = formField("作成理由", "change_reason", "", { textarea: true, rows: 3 });
   body.appendChild(reason);
+  var confirmUnreferencedWrap = document.createElement("label");
+  confirmUnreferencedWrap.className = "admin-dev-toggle";
+  var confirmUnreferenced = document.createElement("input");
+  confirmUnreferenced.type = "checkbox";
+  confirmUnreferenced.name = "confirm_unreferenced";
+  confirmUnreferencedWrap.appendChild(confirmUnreferenced);
+  confirmUnreferencedWrap.appendChild(document.createTextNode("出力に含まれない項目を確認しました"));
+  body.appendChild(confirmUnreferencedWrap);
   actions.appendChild(button("閉じる", "btn bg", closeModal));
   actions.appendChild(button("保存", "btn bp", async function() {
     if (!model.label || !model.full || !model.category || !collectNamedText(body, "change_reason")) {
@@ -489,12 +497,18 @@ function renderSimpleCreateEditor(model) {
         schema: editor.collectSchema(),
         copy_format: editor.collectCopyFormat(),
         change_reason: collectNamedText(body, "change_reason"),
+        confirm_unreferenced: confirmUnreferenced.checked,
       });
       closeModal();
       await loadAdminTemplates();
       if (result && result.warnings && result.warnings.length) showWarningsToast(result.warnings);
       else toast("テンプレートを追加しました", "#2d7a3a");
     } catch (error) {
+      var unreferenced = error.data && error.data.unreferenced_fields;
+      if (error.status === 409 && unreferenced && unreferenced.length) {
+        setModalError("出力に含まれない項目があります。内容を確認してチェックを入れてください。\n" + unreferencedSummary(unreferenced));
+        return;
+      }
       setModalError(showErrorForApi(error));
     }
   }));
@@ -752,22 +766,43 @@ function highRiskSummary(changes) {
   }).join("\n");
 }
 
+function unreferencedSummary(fields) {
+  return (fields || []).map(function(field) {
+    return field.message || field.label || field.fieldRef;
+  }).join("\n");
+}
+
 async function runVersionPublicationAction(item, version, mode) {
   var isPublish = mode === "publish";
   var reason = window.prompt(isPublish ? "公開理由を入力してください" : "復元公開理由を入力してください", "");
   if (!reason || !reason.trim()) return;
-  async function submit(confirmHighRisk) {
-    if (isPublish) return publishTemplateVersion(item.id, version.id, reason.trim(), confirmHighRisk);
-    return rollbackTemplateVersion(item.id, version.id, reason.trim(), confirmHighRisk);
+  async function submit(confirmHighRisk, confirmUnreferenced) {
+    if (isPublish) return publishTemplateVersion(item.id, version.id, reason.trim(), confirmHighRisk, confirmUnreferenced);
+    return rollbackTemplateVersion(item.id, version.id, reason.trim(), confirmHighRisk, confirmUnreferenced);
   }
   try {
-    await submit(false);
+    await submit(false, false);
   } catch (error) {
     var changes = error.data && error.data.high_risk_changes;
     if (error.status === 409 && changes && changes.length) {
       var ok = window.confirm("高リスク変更があります。確認して続行しますか？\n\n" + highRiskSummary(changes));
       if (!ok) return;
-      await submit(true);
+      try {
+        await submit(true, false);
+      } catch (nextError) {
+        var nextUnreferenced = nextError.data && nextError.data.unreferenced_fields;
+        if (nextError.status === 409 && nextUnreferenced && nextUnreferenced.length) {
+          var okNext = window.confirm("出力に含まれない項目があります。確認して続行しますか？\n\n" + unreferencedSummary(nextUnreferenced));
+          if (!okNext) return;
+          await submit(true, true);
+        } else {
+          throw nextError;
+        }
+      }
+    } else if (error.status === 409 && error.data && error.data.unreferenced_fields && error.data.unreferenced_fields.length) {
+      var okUnreferenced = window.confirm("出力に含まれない項目があります。確認して続行しますか？\n\n" + unreferencedSummary(error.data.unreferenced_fields));
+      if (!okUnreferenced) return;
+      await submit(false, true);
     } else {
       throw error;
     }
@@ -834,6 +869,14 @@ async function openDraftReviewModal(item) {
     confirmWrap.appendChild(confirm);
     confirmWrap.appendChild(document.createTextNode("注意が必要な変更を確認しました"));
     form.appendChild(confirmWrap);
+    var confirmUnreferencedWrap = document.createElement("label");
+    confirmUnreferencedWrap.className = "admin-dev-toggle";
+    var confirmUnreferenced = document.createElement("input");
+    confirmUnreferenced.type = "checkbox";
+    confirmUnreferenced.name = "confirm_unreferenced";
+    confirmUnreferencedWrap.appendChild(confirmUnreferenced);
+    confirmUnreferencedWrap.appendChild(document.createTextNode("出力に含まれない項目を確認しました"));
+    form.appendChild(confirmUnreferencedWrap);
     body.appendChild(form);
     $("admin-modal-actions").appendChild(button("編集に戻る", "btn bg", function(){ openEditModal(item); }));
     $("admin-modal-actions").appendChild(button("公開する", "btn bp", async function() {
@@ -843,7 +886,7 @@ async function openDraftReviewModal(item) {
         return;
       }
       try {
-        await publishTemplateVersion(item.id, draft.id, reason, confirm.checked);
+        await publishTemplateVersion(item.id, draft.id, reason, confirm.checked, confirmUnreferenced.checked);
         closeModal();
         await loadAdminTemplates();
         toast("下書きを公開しました", "#2d7a3a");
@@ -851,6 +894,11 @@ async function openDraftReviewModal(item) {
         var changes = error.data && error.data.high_risk_changes;
         if (error.status === 409 && changes && changes.length) {
           setModalError("注意が必要な変更があります。内容を確認してチェックを入れてください。\n" + highRiskSummary(changes));
+          return;
+        }
+        var unreferenced = error.data && error.data.unreferenced_fields;
+        if (error.status === 409 && unreferenced && unreferenced.length) {
+          setModalError("出力に含まれない項目があります。内容を確認してチェックを入れてください。\n" + unreferencedSummary(unreferenced));
           return;
         }
         setModalError(showErrorForApi(error));

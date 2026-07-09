@@ -15,6 +15,7 @@ EXPECTED_GETS = [
     ("/js/admin.js", 200),
     ("/js/admin-builder.js", 200),
     ("/js/field-meta.js", 200),
+    ("/js/blank.js", 200),
     ("/js/generic-values.js", 200),
     ("/js/condition-engine.js", 200),
     ("/js/safety-rules.js", 200),
@@ -839,20 +840,69 @@ def run_write_tests(failures):
             unreferenced_payload["id"] = "generic_unref"
             unreferenced_payload["copy_format"] = {"format": "text-v1", "lines": ["Procedure: {{basic.procedure}}"]}
             unreferenced_response = client.post("/api/templates", json=unreferenced_payload, headers=LOCAL_HEADERS)
-            assert_status(unreferenced_response, 201, "POST /api/templates generic-v1 unreferenced warning", failures)
+            assert_status(unreferenced_response, 409, "POST /api/templates generic-v1 unreferenced requires confirmation", failures)
             assert_json_contains(
                 unreferenced_response,
                 lambda item: any(
-                    warning["fieldRef"] == "basic.status" and "Basic > Status" in warning["message"]
-                    for warning in item.get("warnings", [])
+                    field["fieldRef"] == "basic.status" and "Basic > Status" in field["message"]
+                    for field in item.get("unreferenced_fields", [])
                 ),
-                "POST /api/templates generic-v1 returns unreferenced warning",
+                "POST /api/templates generic-v1 returns unreferenced fields",
                 failures,
             )
+            unreferenced_payload["confirm_unreferenced"] = True
+            unreferenced_confirmed_response = client.post("/api/templates", json=unreferenced_payload, headers=LOCAL_HEADERS)
+            assert_status(unreferenced_confirmed_response, 201, "POST /api/templates generic-v1 unreferenced confirmed", failures)
             assert_json_contains(
                 client.get("/api/admin/templates/generic_unref"),
                 lambda item: any(warning["fieldRef"] == "basic.status" for warning in item.get("warnings", [])),
                 "GET /api/admin/templates/generic_unref returns unreferenced warning",
+                failures,
+            )
+
+            publish_gate_payload = copy.deepcopy(generic_payload)
+            publish_gate_payload["id"] = "generic_publish_gate"
+            publish_gate_response = client.post("/api/templates", json=publish_gate_payload, headers=LOCAL_HEADERS)
+            assert_status(publish_gate_response, 201, "POST /api/templates publish gate baseline", failures)
+            publish_gate_detail = client.get("/api/admin/templates/generic_publish_gate")
+            publish_gate_base_version_id = (publish_gate_detail.get_json() or {}).get("current_version_id")
+            publish_gate_draft = client.post(
+                "/api/templates/generic_publish_gate/versions",
+                json={
+                    "base_version_id": publish_gate_base_version_id,
+                    "schema": GENERIC_SCHEMA,
+                    "copy_format": {"format": "text-v1", "lines": ["Procedure: {{basic.procedure}}"]},
+                    "change_summary": "smoke unreferenced publish",
+                    "change_reason": "smoke unreferenced publish",
+                },
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(publish_gate_draft, 201, "POST /api/templates/<id>/versions unreferenced draft", failures)
+            publish_gate_draft_id = (publish_gate_draft.get_json() or {}).get("version_id")
+            publish_gate_without_unreferenced_confirm = client.post(
+                f"/api/templates/generic_publish_gate/versions/{publish_gate_draft_id}/publish",
+                json={"reason": "smoke unreferenced publish", "confirm_high_risk": True},
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(
+                publish_gate_without_unreferenced_confirm,
+                409,
+                "POST /api/templates/<id>/versions/<id>/publish requires unreferenced confirmation",
+                failures,
+            )
+            publish_gate_confirmed = client.post(
+                f"/api/templates/generic_publish_gate/versions/{publish_gate_draft_id}/publish",
+                json={
+                    "reason": "smoke unreferenced publish",
+                    "confirm_high_risk": True,
+                    "confirm_unreferenced": True,
+                },
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(
+                publish_gate_confirmed,
+                200,
+                "POST /api/templates/<id>/versions/<id>/publish unreferenced confirmed",
                 failures,
             )
 
@@ -865,14 +915,17 @@ def run_write_tests(failures):
                 ],
             }
             omit_only_response = client.post("/api/templates", json=omit_only_payload, headers=LOCAL_HEADERS)
-            assert_status(omit_only_response, 201, "POST /api/templates generic-v1 omit-only warning", failures)
+            assert_status(omit_only_response, 409, "POST /api/templates generic-v1 omit-only requires confirmation", failures)
             assert_json_contains(
                 omit_only_response,
-                lambda item: any(warning["fieldRef"] == "basic.status" for warning in item.get("warnings", []))
-                and any(warning["fieldRef"] == "basic.procedure" for warning in item.get("warnings", [])),
+                lambda item: any(field["fieldRef"] == "basic.status" for field in item.get("unreferenced_fields", []))
+                and any(field["fieldRef"] == "basic.procedure" for field in item.get("unreferenced_fields", [])),
                 "POST /api/templates generic-v1 treats omitIfAllBlank as control ref",
                 failures,
             )
+            omit_only_payload["confirm_unreferenced"] = True
+            omit_only_confirmed_response = client.post("/api/templates", json=omit_only_payload, headers=LOCAL_HEADERS)
+            assert_status(omit_only_confirmed_response, 201, "POST /api/templates generic-v1 omit-only confirmed", failures)
 
             no_copy_format_payload = copy.deepcopy(generic_payload)
             no_copy_format_payload["id"] = "generic_no_copy"
@@ -959,18 +1012,29 @@ def run_write_tests(failures):
             )
             assert_status(
                 generic_v2_unreferenced_response,
-                201,
-                "POST /api/templates generic-v2 unreferenced warning",
+                409,
+                "POST /api/templates generic-v2 unreferenced requires confirmation",
                 failures,
             )
             assert_json_contains(
                 generic_v2_unreferenced_response,
                 lambda item: any(
-                    warning["fieldRef"] == "vitals.oxygen_flow"
-                    and "条件付き表示" in warning["message"]
-                    for warning in item.get("warnings", [])
+                    field["fieldRef"] == "vitals.oxygen_flow"
+                    for field in item.get("unreferenced_fields", [])
                 ),
                 "POST /api/templates generic-v2 marks conditional unreferenced field",
+                failures,
+            )
+            generic_v2_unreferenced_payload["confirm_unreferenced"] = True
+            generic_v2_unreferenced_confirmed_response = client.post(
+                "/api/templates",
+                json=generic_v2_unreferenced_payload,
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(
+                generic_v2_unreferenced_confirmed_response,
+                201,
+                "POST /api/templates generic-v2 unreferenced confirmed",
                 failures,
             )
             section_visible_if_schema = {
@@ -1348,6 +1412,91 @@ def run_write_tests(failures):
                 client.post("/api/templates", json=invalid_select_value_payload, headers=LOCAL_HEADERS),
                 400,
                 "POST /api/templates generic-v2 rejects unknown select condition value",
+                failures,
+            )
+
+            def multi_select_condition_payload(template_id, condition):
+                return {
+                    "id": template_id,
+                    "label": "Multi select condition",
+                    "full": "Multi select condition",
+                    "category": "test",
+                    "schema": {
+                        "schemaFormat": "generic-v2",
+                        "sections": [
+                            {
+                                "id": "observe",
+                                "label": "Observe",
+                                "fields": [
+                                    {
+                                        "id": "symptoms",
+                                        "label": "Symptoms",
+                                        "type": "multi_select",
+                                        "options": ["headache", "nausea"],
+                                    }
+                                ],
+                            },
+                            {
+                                "id": "detail",
+                                "label": "Detail",
+                                "visibleIf": condition,
+                                "fields": [
+                                    {"id": "note", "label": "Note", "type": "text"}
+                                ],
+                            },
+                        ],
+                    },
+                    "copy_format": {
+                        "format": "text-v1",
+                        "lines": [
+                            "Symptoms: {{observe.symptoms}}",
+                            "Note: {{detail.note}}",
+                        ],
+                    },
+                    "change_reason": "smoke multi_select condition",
+                }
+
+            for op in ("eq", "neq", "in", "not_in"):
+                bad_condition = {
+                    "op": op,
+                    "field": "observe.symptoms",
+                    "value": ["headache"] if op in ("in", "not_in") else "headache",
+                }
+                assert_status(
+                    client.post(
+                        "/api/templates",
+                        json=multi_select_condition_payload(f"bad_multi_select_{op}", bad_condition),
+                        headers=LOCAL_HEADERS,
+                    ),
+                    400,
+                    f"POST /api/templates generic-v2 rejects multi_select {op} condition",
+                    failures,
+                )
+
+            assert_status(
+                client.post(
+                    "/api/templates",
+                    json=multi_select_condition_payload(
+                        "good_multi_select_contains",
+                        {"op": "contains", "field": "observe.symptoms", "value": "headache"},
+                    ),
+                    headers=LOCAL_HEADERS,
+                ),
+                201,
+                "POST /api/templates generic-v2 accepts multi_select contains condition",
+                failures,
+            )
+            assert_status(
+                client.post(
+                    "/api/templates",
+                    json=multi_select_condition_payload(
+                        "good_multi_select_is_blank",
+                        {"op": "is_blank", "field": "observe.symptoms"},
+                    ),
+                    headers=LOCAL_HEADERS,
+                ),
+                201,
+                "POST /api/templates generic-v2 accepts multi_select is_blank condition",
                 failures,
             )
 

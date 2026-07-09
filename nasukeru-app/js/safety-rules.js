@@ -1,17 +1,11 @@
 (function(root, factory) {
-  var api = factory(root.NasukeruConditionEngine);
   if (typeof module === "object" && module.exports) {
-    module.exports = factory(require("./condition-engine.js"));
+    module.exports = factory(require("./condition-engine.js"), require("./blank.js"));
+    return;
   }
+  var api = factory(root.NasukeruConditionEngine, root.NasukeruBlank);
   root.NasukeruSafetyRules = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function(conditionEngine) {
-  function isBlank(value) {
-    if (Array.isArray(value)) return value.length === 0;
-    if (value === null || value === undefined) return true;
-    if (typeof value === "number") return false;
-    return !String(value).trim();
-  }
-
+})(typeof globalThis !== "undefined" ? globalThis : this, function(conditionEngine, blank) {
   function blankPolicyFor(field, values) {
     if (field.blankPolicy) return field.blankPolicy;
     if (field.requiredWarning) return "warn";
@@ -20,7 +14,7 @@
   }
 
   function isOutsideRange(value, range) {
-    if (!range || isBlank(value)) return false;
+    if (!range || blank.isBlank(value)) return false;
     var numeric = Number(value);
     if (!Number.isFinite(numeric)) return false;
     if (typeof range.min === "number" && numeric < range.min) return true;
@@ -43,7 +37,7 @@
     var value = field.value;
     var label = field.label || field.ref || "入力項目";
     var policy = blankPolicyFor(field, values);
-    if (isBlank(value)) {
+    if (blank.isBlank(value)) {
       if (policy === "block") {
         result.blocks.push(issue(field, "required_blank", "block", label + "が未入力です"));
       } else if (policy === "warn") {
@@ -81,7 +75,7 @@
 
   return {
     hasIssues: hasIssues,
-    isBlank: isBlank,
+    isBlank: blank.isBlank,
     validateField: validateField,
     validateFields: validateFields,
   };

@@ -63,6 +63,50 @@
     var root = el("div", "simple-editor");
     container.appendChild(root);
 
+    function currentGeneratedSchema() {
+      return modelApi.editorModelToSchema(model);
+    }
+
+    function currentGeneratedCopyFormat() {
+      return modelApi.editorModelToCopyFormat(model);
+    }
+
+    function prettyJson(value) {
+      return JSON.stringify(value, null, 2);
+    }
+
+    function syncDeveloperJsonFromForm() {
+      model.developerSchemaJson = prettyJson(currentGeneratedSchema());
+      model.developerCopyFormatJson = prettyJson(currentGeneratedCopyFormat());
+    }
+
+    function ensureDeveloperJson() {
+      if (!model.developerSchemaJson) model.developerSchemaJson = prettyJson(currentGeneratedSchema());
+      if (!model.developerCopyFormatJson) model.developerCopyFormatJson = prettyJson(currentGeneratedCopyFormat());
+    }
+
+    function parseDeveloperJsonText(text, label) {
+      try {
+        return JSON.parse(text);
+      } catch (error) {
+        throw new Error(label + " JSONの形式を確認してください");
+      }
+    }
+
+    function collectEditorSchema() {
+      if (model.useDeveloperJson) {
+        return parseDeveloperJsonText(model.developerSchemaJson, "schema");
+      }
+      return currentGeneratedSchema();
+    }
+
+    function collectEditorCopyFormat() {
+      if (model.useDeveloperJson) {
+        return parseDeveloperJsonText(model.developerCopyFormatJson, "copy_format");
+      }
+      return currentGeneratedCopyFormat();
+    }
+
     function refresh() {
       root.innerHTML = "";
       renderBasics();
@@ -538,24 +582,44 @@
     }
 
     function renderPreview() {
-      var schema = modelApi.editorModelToSchema(model);
-      var copyFormat = modelApi.editorModelToCopyFormat(model);
       var section = el("section", "simple-panel");
       section.appendChild(el("h3", "", "プレビュー"));
       var grid = el("div", "simple-preview-grid");
       var formSide = el("div", "simple-preview-box");
       formSide.appendChild(el("h4", "", "実際の入力画面"));
-      genericRenderer.renderGenericBody(formSide, schema);
       var copySide = el("div", "simple-preview-box");
       copySide.appendChild(el("h4", "", "コピー文"));
       var pre = el("pre", "admin-json simple-copy-preview");
       copySide.appendChild(pre);
+      var schema;
+      var copyFormat;
+      try {
+        schema = collectEditorSchema();
+        copyFormat = collectEditorCopyFormat();
+        genericRenderer.renderGenericBody(formSide, schema);
+      } catch (error) {
+        formSide.appendChild(el("div", "admin-alert show", error.message));
+        pre.textContent = "";
+        grid.appendChild(formSide);
+        grid.appendChild(copySide);
+        section.appendChild(grid);
+        root.appendChild(section);
+        return;
+      }
       function updatePreview() {
         genericRenderer.updateConditions(formSide);
         var values = genericRenderer.collectCopyValues(formSide);
         var conditionValues = genericRenderer.collectConditionValues(formSide);
-        var result = copyRenderer.renderGenericTemplateCopyResult(copyFormat, values, conditionValues);
-        pre.textContent = result.text;
+        if (!copyFormat || !Array.isArray(copyFormat.lines)) {
+          pre.textContent = "";
+          return;
+        }
+        try {
+          var result = copyRenderer.renderGenericTemplateCopyResult(copyFormat, values, conditionValues);
+          pre.textContent = result.text;
+        } catch (error) {
+          pre.textContent = error.message;
+        }
       }
       formSide.addEventListener("input", updatePreview);
       formSide.addEventListener("change", updatePreview);
@@ -567,17 +631,43 @@
     }
 
     function renderDeveloperMode() {
-      var schema = modelApi.editorModelToSchema(model);
-      var copyFormat = modelApi.editorModelToCopyFormat(model);
+      if (!model.useDeveloperJson) syncDeveloperJsonFromForm();
+      ensureDeveloperJson();
       var details = document.createElement("details");
       details.className = "admin-dev-mode";
       var summary = document.createElement("summary");
       summary.textContent = "開発者向け編集";
       details.appendChild(summary);
-      details.appendChild(el("p", "simple-note", "JSONや詳細なcopy formatは調査用です。通常は編集しません。"));
-      var pre = el("pre", "admin-json");
-      pre.textContent = JSON.stringify({ schema: schema, copy_format: copyFormat }, null, 2);
-      details.appendChild(pre);
+      details.appendChild(el("p", "simple-note", "JSONを直接編集する場合は下の切り替えを有効にします。保存時はサーバ側の検証を必ず通ります。"));
+      var toggle = document.createElement("input");
+      toggle.type = "checkbox";
+      toggle.checked = Boolean(model.useDeveloperJson);
+      toggle.addEventListener("change", function() {
+        if (toggle.checked) syncDeveloperJsonFromForm();
+        model.useDeveloperJson = toggle.checked;
+        refresh();
+      });
+      details.appendChild(row("JSON直接編集を使う", toggle));
+      var schemaText = textarea(model.developerSchemaJson);
+      schemaText.rows = 12;
+      schemaText.disabled = !model.useDeveloperJson;
+      schemaText.addEventListener("input", function() {
+        model.developerSchemaJson = schemaText.value;
+      });
+      details.appendChild(row("schema JSON", schemaText));
+      var copyText = textarea(model.developerCopyFormatJson);
+      copyText.rows = 8;
+      copyText.disabled = !model.useDeveloperJson;
+      copyText.addEventListener("input", function() {
+        model.developerCopyFormatJson = copyText.value;
+      });
+      details.appendChild(row("copy_format JSON", copyText));
+      if (model.useDeveloperJson) {
+        var apply = el("button", "btn bg admin-row-btn", "プレビューに反映");
+        apply.type = "button";
+        apply.addEventListener("click", refresh);
+        details.appendChild(apply);
+      }
       root.appendChild(details);
     }
 
@@ -585,8 +675,8 @@
     return {
       element: root,
       model: model,
-      collectSchema: function() { return modelApi.editorModelToSchema(model); },
-      collectCopyFormat: function() { return modelApi.editorModelToCopyFormat(model); },
+      collectSchema: collectEditorSchema,
+      collectCopyFormat: collectEditorCopyFormat,
     };
   }
 

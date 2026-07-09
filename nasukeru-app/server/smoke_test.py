@@ -29,11 +29,14 @@ EXPECTED_GETS = [
     ("/api/templates", 200),
     ("/api/templates/mca", 200),
     ("/api/templates/neuro_common", 200),
+    ("/api/templates/chronic_subdural", 200),
     ("/api/templates/mca/versions", 200),
     ("/api/templates/neuro_common/versions", 200),
+    ("/api/templates/chronic_subdural/versions", 200),
     ("/api/templates/mca/versions/1", 200),
     ("/api/templates/mca/logs", 200),
     ("/api/templates/neuro_common/logs", 200),
+    ("/api/templates/chronic_subdural/logs", 200),
     ("/api/templates/unknown", 404),
     ("/api/templates/unknown/versions", 404),
     ("/api/templates/unknown/logs", 404),
@@ -508,13 +511,106 @@ def run_write_tests(failures):
                 lambda item: item["schema_format"] == "generic-v2"
                 and item["label"] == "脳卒中共通"
                 and any(
+                    section["id"] == "vitals"
+                    and any(
+                        field["id"] == "ecg_rhythm_other"
+                        and field.get("visibleIf") == {"op": "eq", "field": "vitals.ecg_rhythm", "value": "その他"}
+                        for field in section["fields"]
+                    )
+                    and any(
+                        field["id"] == "oxygen_flow"
+                        and field.get("unit") == "L/分"
+                        and field.get("requiredIf") == {"op": "eq", "field": "vitals.oxygen_use", "value": "O2使用"}
+                        for field in section["fields"]
+                    )
+                    for section in item["schema"]["sections"]
+                )
+                and any(
                     section["id"] == "motor"
-                    and any(field["id"] == "barre_side" and field["type"] == "multi_select" for field in section["fields"])
+                    and any(
+                        field["id"] == "barre_side"
+                        and field["type"] == "multi_select"
+                        and field.get("requiredIf") == {"op": "eq", "field": "motor.barre_status", "value": "陽性"}
+                        for field in section["fields"]
+                    )
                     and any(field["id"] == "barre_angle" and field["type"] == "number" for field in section["fields"])
+                    for section in item["schema"]["sections"]
+                )
+                and any(
+                    section["id"] == "swallow"
+                    and any(
+                        field["id"] == "thickened_water_level"
+                        and [option["label"] for option in field["options"]] == ["薄め", "中程度", "濃い"]
+                        for field in section["fields"]
+                    )
+                    and any(
+                        field["id"] == "dysphagia_diet_level"
+                        and field["type"] == "number"
+                        and field["min"] == 1
+                        and field["max"] == 5
+                        for field in section["fields"]
+                    )
+                    for section in item["schema"]["sections"]
+                )
+                and any(
+                    section["id"] == "treatment"
+                    and any(
+                        field["id"] == "antihypertensive_other"
+                        and field["label"] == "降圧薬その他"
+                        for field in section["fields"]
+                    )
                     for section in item["schema"]["sections"]
                 )
                 and item["copy_format"]["format"] == "text-v1",
                 "GET /api/templates/neuro_common returns common generic schema",
+                failures,
+            )
+            chronic_response = client.get("/api/templates/chronic_subdural")
+            assert_status(chronic_response, 200, "GET /api/templates/chronic_subdural after migration", failures)
+            assert_json_contains(
+                chronic_response,
+                lambda item: item["schema_format"] == "generic-v2"
+                and item["label"] == "慢性硬膜下血腫"
+                and any(
+                    section["id"] == "neuro"
+                    and any(field["id"] == "pupil" and field.get("requiredWarning") is True for field in section["fields"])
+                    and any(
+                        field["id"] == "paresis_side"
+                        and field["type"] == "select"
+                        and [option["label"] for option in field["options"]] == ["なし", "右", "左", "両側"]
+                        and field.get("requiredWarning") is True
+                        for field in section["fields"]
+                    )
+                    and any(
+                        field["id"] == "mmt"
+                        and field.get("visibleIf") == {"op": "neq", "field": "neuro.paresis_side", "value": "なし"}
+                        for field in section["fields"]
+                    )
+                    for section in item["schema"]["sections"]
+                )
+                and any(
+                    section["id"] == "drain"
+                    and any(
+                        field["id"] == "output"
+                        and field["type"] == "number"
+                        and field.get("unit") == "ml"
+                        and field.get("visibleIf") == {"op": "eq", "field": "drain.placed", "value": "あり"}
+                        for field in section["fields"]
+                    )
+                    for section in item["schema"]["sections"]
+                )
+                and any(
+                    isinstance(line, dict)
+                    and line.get("showIf") == {"op": "eq", "field": "drain.placed", "value": "あり"}
+                    for line in item["copy_format"]["lines"]
+                ),
+                "GET /api/templates/chronic_subdural returns generic schema",
+                failures,
+            )
+            assert_json_contains(
+                client.get("/api/migrations"),
+                lambda items: all(version in [item["version"] for item in items] for version in ["010", "011", "012", "013"]),
+                "GET /api/migrations records integrated 010/011, chronic subdural 012, and reconcile 013 migrations",
                 failures,
             )
             assert_json_contains(
@@ -528,8 +624,13 @@ def run_write_tests(failures):
                     item["label"] == "脳卒中共通"
                     and item["target"] == {"type": "template", "id": "neuro_common"}
                     for item in items
+                )
+                and any(
+                    item["label"] == "慢性硬膜下血腫"
+                    and item["target"] == {"type": "template", "id": "chronic_subdural"}
+                    for item in items
                 ),
-                "GET /api/quick-templates includes neuro common",
+                "GET /api/quick-templates includes neuro common and chronic subdural",
                 failures,
             )
             assert_json_contains(
@@ -543,8 +644,18 @@ def run_write_tests(failures):
                     item["keyword"] == "脳卒中共通"
                     and item["target"] == {"type": "template", "id": "neuro_common"}
                     for item in items
+                )
+                and any(
+                    item["keyword"] == "慢性硬膜下血腫"
+                    and item["target"] == {"type": "template", "id": "chronic_subdural"}
+                    for item in items
+                )
+                and any(
+                    item["keyword"] == "CSDH"
+                    and item["target"] == {"type": "template", "id": "chronic_subdural"}
+                    for item in items
                 ),
-                "GET /api/search-keywords includes neuro common keywords",
+                "GET /api/search-keywords includes neuro common and chronic subdural keywords",
                 failures,
             )
             assert_json_contains(
@@ -557,6 +668,12 @@ def run_write_tests(failures):
             discovery_response = client.get("/api/admin/discovery")
             assert_status(discovery_response, 200, "GET /api/admin/discovery", failures)
             discovery = discovery_response.get_json() or {}
+            assert_status(
+                client.post("/api/health"),
+                403,
+                "POST /api/health without local guard",
+                failures,
+            )
             assert_status(
                 client.post("/api/admin/discovery/quick-templates", json={"items": []}),
                 403,

@@ -223,7 +223,7 @@ def allowed_local_origin(value):
 
 
 def require_local_post_guard():
-    if request.method != "POST":
+    if request.method in {"GET", "HEAD", "OPTIONS"}:
         return
     if request.headers.get("X-Nasukeru-Local") != "1":
         raise LocalGuardError("X-Nasukeru-Local: 1 header is required")
@@ -449,7 +449,7 @@ def handle_local_guard_error(error):
 
 @app.before_request
 def guard_local_write_requests():
-    if request.path.startswith("/api/templates") and request.method == "POST":
+    if request.path.startswith("/api/") and request.method not in {"GET", "HEAD", "OPTIONS"}:
         require_local_post_guard()
 
 

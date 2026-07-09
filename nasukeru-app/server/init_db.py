@@ -8,6 +8,7 @@ from template_schema import (
     SchemaValidationError,
     normalize_copy_format,
     normalize_schema,
+    validate_copy_format_references,
     validate_template_id,
 )
 
@@ -116,9 +117,16 @@ NEURO_COMMON_TEMPLATE = {
     "full": "脳神経共通テンプレート",
     "category": "neuro_common",
 }
+CHRONIC_SUBDURAL_TEMPLATE = {
+    "id": "chronic_subdural",
+    "label": "慢性硬膜下血腫",
+    "full": "慢性硬膜下血腫 看護観察テンプレート",
+    "category": "neuro",
+}
 QUICK_TEMPLATES = [
     {"label": "脳梗塞", "sub": "5パターン専用テンプレ", "action": "stroke", "target_type": "group", "target_id": "cerebral_infarction"},
     {"label": "脳卒中共通", "sub": "脳神経共通テンプレ", "action": "neuro_common", "target_type": "template", "target_id": "neuro_common"},
+    {"label": "慢性硬膜下血腫", "sub": "generic-v2条件付きテンプレ", "action": "chronic_subdural", "target_type": "template", "target_id": "chronic_subdural"},
 ]
 SEARCH_KEYWORDS = [
     {"keyword": "脳梗塞", "template_action": "stroke", "target_type": "group", "target_id": "cerebral_infarction"},
@@ -131,6 +139,8 @@ SEARCH_KEYWORDS = [
     {"keyword": "脳幹", "template_action": "brainstem", "target_type": "template", "target_id": "brainstem"},
     {"keyword": "脳卒中共通", "template_action": "neuro_common", "target_type": "template", "target_id": "neuro_common"},
     {"keyword": "脳神経共通テンプレート", "template_action": "neuro_common", "target_type": "template", "target_id": "neuro_common"},
+    {"keyword": "慢性硬膜下血腫", "template_action": "chronic_subdural", "target_type": "template", "target_id": "chronic_subdural"},
+    {"keyword": "CSDH", "template_action": "chronic_subdural", "target_type": "template", "target_id": "chronic_subdural"},
 ]
 
 TEMPLATE_GROUPS = [
@@ -355,7 +365,16 @@ def antihypertensive_contains(value):
     return {"op": "contains", "field": "treatment.antihypertensive", "value": value}
 
 
+def eq(field, value):
+    return {"op": "eq", "field": field, "value": value}
+
+
 def build_neuro_common_schema():
+    oxygen_condition = eq("vitals.oxygen_use", "O2使用")
+    ecg_other_condition = eq("vitals.ecg_rhythm", "その他")
+    barre_positive = eq("motor.barre_status", "陽性")
+    mingazzini_positive = eq("motor.mingazzini_status", "陽性")
+    nicardipine_condition = antihypertensive_contains("ニカルジピン")
     sections = [
         {
             "id": "consciousness",
@@ -374,9 +393,10 @@ def build_neuro_common_schema():
                 generic_field("bp", "血圧", requiredWarning=True, placeholder="例: 120/70"),
                 generic_field("hr", "心拍数", "number", unit="回/分", min=0, step=1, requiredWarning=True),
                 generic_field("ecg_rhythm", "心電図リズム", "select", options=["SR", "Af", "PAC", "PVC", "その他"]),
+                generic_field("ecg_rhythm_other", "その他の心電図リズム", "text", placeholder="例: VT", visibleIf=ecg_other_condition),
                 generic_field("spo2", "SpO₂", "number", unit="%", min=0, max=100, step=1, requiredWarning=True),
                 generic_field("oxygen_use", "酸素使用", "select", options=["RA", "O2使用"]),
-                generic_field("oxygen_flow", "酸素流量", "number", unit="L", min=0, step=0.5),
+                generic_field("oxygen_flow", "酸素流量", "number", unit="L/分", min=0, step=0.5, visibleIf=oxygen_condition, requiredIf=oxygen_condition),
             ],
         },
         {
@@ -404,13 +424,13 @@ def build_neuro_common_schema():
                 generic_field("mmt_lu", "MMT 左上肢", requiredWarning=True, placeholder="例: 5/5"),
                 generic_field("mmt_ll", "MMT 左下肢", requiredWarning=True, placeholder="例: 5/5"),
                 generic_field("barre_status", "バレー徴候", "select", options=["陰性", "陽性"]),
-                generic_field("barre_side", "バレー左右", "multi_select", options=["右", "左"]),
-                generic_field("barre_angle", "バレー保持角度", "number", unit="度", min=0, max=90, step=1),
-                generic_field("barre_detail", "バレー詳細", "multi_select", options=["軽度下垂", "下垂", "保持困難", "挙上不可"]),
+                generic_field("barre_side", "バレー左右", "multi_select", options=["右", "左"], visibleIf=barre_positive, requiredIf=barre_positive),
+                generic_field("barre_angle", "バレー保持角度", "number", unit="度", min=0, max=90, step=1, visibleIf=barre_positive),
+                generic_field("barre_detail", "バレー詳細", "multi_select", options=["軽度下垂", "下垂", "保持困難", "挙上不可"], visibleIf=barre_positive),
                 generic_field("mingazzini_status", "ミンガッチーニ徴候", "select", options=["陰性", "陽性"]),
-                generic_field("mingazzini_side", "ミンガッチーニ左右", "multi_select", options=["右", "左"]),
-                generic_field("mingazzini_detail", "ミンガッチーニ詳細", "multi_select", options=["軽度下垂", "下垂", "保持困難", "肢位不可"]),
-                generic_field("mingazzini_note", "ミンガッチーニ備考"),
+                generic_field("mingazzini_side", "ミンガッチーニ左右", "multi_select", options=["右", "左"], visibleIf=mingazzini_positive, requiredIf=mingazzini_positive),
+                generic_field("mingazzini_detail", "ミンガッチーニ詳細", "multi_select", options=["軽度下垂", "下垂", "保持困難", "肢位不可"], visibleIf=mingazzini_positive),
+                generic_field("mingazzini_note", "ミンガッチーニ備考", visibleIf=mingazzini_positive),
             ],
         },
         {
@@ -480,7 +500,7 @@ def build_neuro_common_schema():
             "displayOrder": 11,
             "fields": [
                 generic_field("antihypertensive", "降圧薬", "multi_select", options=["ニカルジピン", "アムロジピン", "その他"]),
-                generic_field("nicardipine_rate", "ニカルジピン速度", "number", unit="ml/h", min=0, step=0.1),
+                generic_field("nicardipine_rate", "ニカルジピン速度", "number", unit="ml/h", min=0, step=0.1, visibleIf=nicardipine_condition, requiredIf=nicardipine_condition),
                 generic_field(
                     "antihypertensive_other", "降圧薬その他", "text",
                     placeholder="薬剤名を入力",
@@ -500,28 +520,218 @@ def build_neuro_common_copy_format():
             "lines": [
                 NEURO_COMMON_TEMPLATE["full"],
                 "",
-                "JCS{{consciousness.jcs}}、T{{vitals.t}}℃、BP{{vitals.bp}}mmHg、HR{{vitals.hr}}回/分、SpO₂{{vitals.spo2}}%。",
-                "心電図リズム：{{vitals.ecg_rhythm}}。酸素：{{vitals.oxygen_use}} {{vitals.oxygen_flow}}L。",
+                {
+                    "segments": [
+                        {"ref": "consciousness.jcs", "label": "JCS"},
+                        {"ref": "vitals.t", "label": "T", "suffix": "℃"},
+                        {"ref": "vitals.bp", "label": "BP", "suffix": "mmHg"},
+                        {"ref": "vitals.hr", "label": "HR", "suffix": "回/分"},
+                        {"ref": "vitals.spo2", "label": "SpO₂", "suffix": "%"},
+                    ],
+                    "separator": "　",
+                },
+                {"text": "心電図リズム：{{vitals.ecg_rhythm}}", "omitIfAllBlank": ["vitals.ecg_rhythm"]},
+                {"text": "心電図リズム詳細：{{vitals.ecg_rhythm_other}}", "showIf": eq("vitals.ecg_rhythm", "その他")},
+                {
+                    "segments": [
+                        {"ref": "vitals.oxygen_use", "label": "酸素："},
+                        {"ref": "vitals.oxygen_flow", "suffix": "L/分"},
+                    ],
+                    "separator": " ",
+                },
                 "",
-                "瞳孔：右{{eye.pupil_right}}mm／左{{eye.pupil_left}}mm、対光反射：{{eye.light}}、瞳孔不同：{{eye.anisocoria}}、眼位：{{eye.eye_position}}。",
-                "眼振：{{eye.nystagmus}}、複視：{{eye.diplopia}}、眼瞼下垂：{{eye.ptosis}}。",
+                {
+                    "prefix": "瞳孔・眼球所見：",
+                    "segments": [
+                        {"ref": "eye.pupil_right", "label": "右瞳孔", "suffix": "mm"},
+                        {"ref": "eye.pupil_left", "label": "左瞳孔", "suffix": "mm"},
+                        {"ref": "eye.light", "label": "対光反射："},
+                        {"ref": "eye.anisocoria", "label": "瞳孔不同："},
+                        {"ref": "eye.eye_position", "label": "眼位："},
+                    ],
+                    "separator": "、",
+                },
+                {
+                    "segments": [
+                        {"ref": "eye.nystagmus", "label": "眼振："},
+                        {"ref": "eye.diplopia", "label": "複視："},
+                        {"ref": "eye.ptosis", "label": "眼瞼下垂："},
+                    ],
+                    "separator": "、",
+                },
                 "",
-                "MMT：右上肢{{motor.mmt_ru}}、右下肢{{motor.mmt_rl}}、左上肢{{motor.mmt_lu}}、左下肢{{motor.mmt_ll}}。",
-                "バレー徴候：{{motor.barre_status}}、左右：{{motor.barre_side}}、保持角度：{{motor.barre_angle}}度、詳細：{{motor.barre_detail}}。",
-                "ミンガッチーニ徴候：{{motor.mingazzini_status}}、左右：{{motor.mingazzini_side}}、詳細：{{motor.mingazzini_detail}}。",
-                {"text": "ミンガッチーニ備考：{{motor.mingazzini_note}}", "omitIfAllBlank": ["motor.mingazzini_note"]},
-                "NIHSS：{{nihss.total}}点（別紙記録参照）。",
+                {
+                    "prefix": "MMT：",
+                    "segments": [
+                        {"ref": "motor.mmt_ru", "label": "右上肢"},
+                        {"ref": "motor.mmt_rl", "label": "右下肢"},
+                        {"ref": "motor.mmt_lu", "label": "左上肢"},
+                        {"ref": "motor.mmt_ll", "label": "左下肢"},
+                    ],
+                    "separator": "、",
+                },
+                {"text": "バレー徴候：{{motor.barre_status}}", "omitIfAllBlank": ["motor.barre_status"]},
+                {
+                    "prefix": "バレー詳細：",
+                    "segments": [
+                        {"ref": "motor.barre_side", "label": "側："},
+                        {"ref": "motor.barre_angle", "label": "保持角度：", "suffix": "度"},
+                        {"ref": "motor.barre_detail", "label": "所見："},
+                    ],
+                    "separator": "、",
+                    "showIf": eq("motor.barre_status", "陽性"),
+                },
+                {"text": "ミンガッチーニ徴候：{{motor.mingazzini_status}}", "omitIfAllBlank": ["motor.mingazzini_status"]},
+                {
+                    "prefix": "ミンガッチーニ詳細：",
+                    "segments": [
+                        {"ref": "motor.mingazzini_side", "label": "側："},
+                        {"ref": "motor.mingazzini_detail", "label": "所見："},
+                    ],
+                    "separator": "、",
+                    "showIf": eq("motor.mingazzini_status", "陽性"),
+                },
+                {"text": "ミンガッチーニ備考：{{motor.mingazzini_note}}", "showIf": eq("motor.mingazzini_status", "陽性"), "omitIfAllBlank": ["motor.mingazzini_note"]},
+                {"text": "NIHSS：{{nihss.total}}点（別紙記録参照）", "omitIfAllBlank": ["nihss.total"]},
                 "",
-                "高次脳機能所見：{{higher.findings}}。",
-                "頭蓋内圧亢進症状：{{icp.symptoms}}。",
-                "嚥下：{{swallow.meal}}、むせ：{{swallow.choking}}。",
+                {"text": "高次脳機能所見：{{higher.findings}}", "omitIfAllBlank": ["higher.findings"]},
+                {"text": "頭蓋内圧亢進症状：{{icp.symptoms}}", "omitIfAllBlank": ["icp.symptoms"]},
+                {"text": "食事・飲水：{{swallow.meal}}", "omitIfAllBlank": ["swallow.meal"]},
                 {"text": "とろみの程度：{{swallow.thickened_water_level}}。", "showIf": meal_contains("とろみ水")},
                 {"text": "嚥下食レベル：{{swallow.dysphagia_diet_level}}。", "showIf": meal_contains("嚥下食")},
-                "安静度：{{activity.rest}}、ADL：{{activity.adl}}。",
-                "排尿：{{elimination.urination}}、排便：{{elimination.defecation}}。",
-                "降圧薬：{{treatment.antihypertensive}}、ニカルジピン速度：{{treatment.nicardipine_rate}}ml/h。",
+                {"text": "むせ：{{swallow.choking}}", "omitIfAllBlank": ["swallow.choking"]},
+                {
+                    "segments": [
+                        {"ref": "activity.rest", "label": "安静度："},
+                        {"ref": "activity.adl", "label": "ADL："},
+                    ],
+                    "separator": "、",
+                },
+                {
+                    "segments": [
+                        {"ref": "elimination.urination", "label": "排尿："},
+                        {"ref": "elimination.defecation", "label": "排便："},
+                    ],
+                    "separator": "、",
+                },
+                {"text": "降圧薬：{{treatment.antihypertensive}}", "omitIfAllBlank": ["treatment.antihypertensive"]},
+                {"text": "ニカルジピン速度：{{treatment.nicardipine_rate}}ml/h", "showIf": antihypertensive_contains("ニカルジピン")},
                 {"text": "降圧薬その他：{{treatment.antihypertensive_other}}。", "showIf": antihypertensive_contains("その他")},
                 {"text": "{{treatment.other}}", "splitLinesFrom": "treatment.other", "omitIfAllBlank": ["treatment.other"]},
+            ],
+        }
+    )
+
+
+def build_chronic_subdural_schema():
+    paresis_present = {"op": "neq", "field": "neuro.paresis_side", "value": "なし"}
+    drain_present = eq("drain.placed", "あり")
+    return normalize_schema(
+        {
+            "schemaFormat": "generic-v2",
+            "sections": [
+                {
+                    "id": "vitals",
+                    "label": "バイタル",
+                    "displayOrder": 1,
+                    "fields": [
+                        generic_field("jcs", "JCS", requiredWarning=True),
+                        generic_field("gcs", "GCS"),
+                        generic_field("bp", "血圧", placeholder="例: 120/70"),
+                        generic_field("hr", "心拍数", "number", unit="回/分", min=0, step=1),
+                    ],
+                },
+                {
+                    "id": "neuro",
+                    "label": "神経所見",
+                    "displayOrder": 2,
+                    "fields": [
+                        generic_field("pupil", "瞳孔", placeholder="例: 3.0/3.0mm", requiredWarning=True),
+                        generic_field("light", "対光反射", "select", options=["あり", "鈍い", "なし"]),
+                        generic_field("paresis_side", "麻痺", "select", options=["なし", "右", "左", "両側"], requiredWarning=True),
+                        generic_field("mmt", "MMT", visibleIf=paresis_present),
+                        generic_field("other", "その他神経所見", "textarea"),
+                    ],
+                },
+                {
+                    "id": "symptom",
+                    "label": "症状",
+                    "displayOrder": 3,
+                    "fields": [
+                        generic_field("items", "症状", "multi_select", options=["頭痛", "嘔気", "ふらつき", "認知機能低下"]),
+                    ],
+                },
+                {
+                    "id": "drain",
+                    "label": "ドレーン",
+                    "displayOrder": 4,
+                    "fields": [
+                        generic_field("placed", "ドレーン留置", "select", options=["なし", "あり"]),
+                        generic_field("output", "排液量", "number", unit="ml", min=0, step=1, visibleIf=drain_present),
+                        generic_field("character", "排液性状", visibleIf=drain_present),
+                    ],
+                },
+                {
+                    "id": "med",
+                    "label": "内服",
+                    "displayOrder": 5,
+                    "fields": [
+                        generic_field("antithrombotic", "抗血栓薬", "multi_select", options=["なし", "抗血小板薬", "抗凝固薬"]),
+                    ],
+                },
+                {
+                    "id": "rest",
+                    "label": "安静度",
+                    "displayOrder": 6,
+                    "fields": [
+                        generic_field("level", "安静度", "select", options=["床上安静", "ヘッドアップ30°", "端座位可", "歩行可"]),
+                    ],
+                },
+            ],
+        }
+    )
+
+
+def build_chronic_subdural_copy_format():
+    drain_present = eq("drain.placed", "あり")
+    paresis_present = {"op": "neq", "field": "neuro.paresis_side", "value": "なし"}
+    return normalize_copy_format(
+        {
+            "format": "text-v1",
+            "lines": [
+                CHRONIC_SUBDURAL_TEMPLATE["full"],
+                "",
+                {
+                    "segments": [
+                        {"ref": "vitals.jcs", "label": "JCS"},
+                        {"ref": "vitals.gcs", "label": "GCS"},
+                        {"ref": "vitals.bp", "label": "BP", "suffix": "mmHg"},
+                        {"ref": "vitals.hr", "label": "HR", "suffix": "回/分"},
+                    ],
+                    "separator": "　",
+                },
+                {
+                    "segments": [
+                        {"ref": "neuro.pupil", "label": "瞳孔："},
+                        {"ref": "neuro.light", "label": "対光反射："},
+                        {"ref": "neuro.paresis_side", "label": "麻痺："},
+                    ],
+                    "separator": "、",
+                },
+                {"text": "MMT：{{neuro.mmt}}", "showIf": paresis_present, "omitIfAllBlank": ["neuro.mmt"]},
+                {"text": "{{neuro.other}}", "splitLinesFrom": "neuro.other", "omitIfAllBlank": ["neuro.other"]},
+                {"text": "症状：{{symptom.items}}", "omitIfAllBlank": ["symptom.items"]},
+                {"text": "ドレーン留置：{{drain.placed}}", "omitIfAllBlank": ["drain.placed"]},
+                {
+                    "segments": [
+                        {"ref": "drain.output", "label": "排液量：", "suffix": "ml"},
+                        {"ref": "drain.character", "label": "性状："},
+                    ],
+                    "separator": "、",
+                    "showIf": drain_present,
+                },
+                {"text": "抗血栓薬：{{med.antithrombotic}}", "omitIfAllBlank": ["med.antithrombotic"]},
+                {"text": "安静度：{{rest.level}}", "omitIfAllBlank": ["rest.level"]},
             ],
         }
     )
@@ -542,6 +752,12 @@ def validate_seed_data():
     if NEURO_COMMON_TEMPLATE["id"] in ids:
         raise ValueError(f"duplicate template id: {NEURO_COMMON_TEMPLATE['id']}")
     ids.add(NEURO_COMMON_TEMPLATE["id"])
+    validate_template_id(CHRONIC_SUBDURAL_TEMPLATE["id"])
+    build_chronic_subdural_schema()
+    build_chronic_subdural_copy_format()
+    if CHRONIC_SUBDURAL_TEMPLATE["id"] in ids:
+        raise ValueError(f"duplicate template id: {CHRONIC_SUBDURAL_TEMPLATE['id']}")
+    ids.add(CHRONIC_SUBDURAL_TEMPLATE["id"])
     if len(set(REST_OPTIONS)) != len(REST_OPTIONS):
         raise ValueError("duplicate rest option")
     actions = [item["action"] for item in QUICK_TEMPLATES]
@@ -862,6 +1078,234 @@ def migrate_template_versions(conn, now):
 
 def migration_applied(conn, version):
     return exists(conn, "SELECT 1 FROM schema_migrations WHERE version = ?", (version,))
+
+
+def current_template_definition(conn, template_id):
+    return conn.execute(
+        """
+        SELECT
+          t.current_version_id,
+          COALESCE(v.schema_json, t.schema_json) AS schema_json,
+          v.copy_format_json AS copy_format_json
+        FROM templates t
+        LEFT JOIN template_versions v ON v.id = t.current_version_id
+        WHERE t.id = ?
+        """,
+        (template_id,),
+    ).fetchone()
+
+
+def publish_system_version_if_changed(conn, template_id, schema, copy_format, summary, reason, now, migration_label="010/011"):
+    validate_copy_format_references(schema, copy_format)
+    row = current_template_definition(conn, template_id)
+    if row is None:
+        return None
+    current_version_id = row[0]
+    current_schema = json.loads(row[1])
+    current_copy_format = json.loads(row[2]) if row[2] else None
+    if current_schema == schema and current_copy_format == copy_format:
+        return current_version_id
+
+    schema_json = json.dumps(schema, ensure_ascii=False)
+    copy_format_json = json.dumps(copy_format, ensure_ascii=False) if copy_format is not None else None
+    version_number = conn.execute(
+        """
+        SELECT COALESCE(MAX(version_number), 0) + 1
+        FROM template_versions
+        WHERE template_id = ?
+        """,
+        (template_id,),
+    ).fetchone()[0]
+    cursor = conn.execute(
+        """
+        INSERT INTO template_versions
+          (template_id, version_number, schema_json, copy_format_json,
+           change_summary, change_reason, created_by, created_at,
+           approved_by, approved_at, base_version_id, status)
+        VALUES (?, ?, ?, ?, ?, ?, 'system', ?, 'system', ?, ?, 'published')
+        """,
+        (
+            template_id,
+            version_number,
+            schema_json,
+            copy_format_json,
+            summary,
+            reason,
+            now,
+            now,
+            current_version_id,
+        ),
+    )
+    version_id = cursor.lastrowid
+    conn.execute(
+        """
+        UPDATE templates
+        SET schema_json = ?, current_version_id = ?, updated_at = ?, status = 'published'
+        WHERE id = ?
+        """,
+        (schema_json, version_id, now, template_id),
+    )
+    conn.execute(
+        """
+        UPDATE template_versions
+        SET status = 'retired'
+        WHERE template_id = ? AND status = 'published' AND id <> ?
+        """,
+        (template_id, version_id),
+    )
+    conn.execute(
+        """
+        INSERT INTO template_audit_logs
+          (template_id, version_id, action, actor_name, acted_at, before_json, after_json, diff_json, reason)
+        VALUES (?, ?, 'migrate', 'system', ?, ?, ?, ?, ?)
+        """,
+        (
+            template_id,
+            version_id,
+            now,
+            json.dumps({"schema": current_schema, "copy_format": current_copy_format}, ensure_ascii=False),
+            json.dumps({"schema": schema, "copy_format": copy_format}, ensure_ascii=False),
+            json.dumps({"migration": migration_label}, ensure_ascii=False),
+            reason,
+        ),
+    )
+    return version_id
+
+
+def migrate_integrated_template_fixes(conn, now):
+    if not migration_applied(conn, "010"):
+        for template in STROKE_TYPES:
+            publish_system_version_if_changed(
+                conn,
+                template["id"],
+                build_generic_stroke_schema(template),
+                build_generic_stroke_copy_format(template),
+                "Normalize built-in stroke template inputs",
+                "Integrate built-in clinical input fixes into init_db",
+                now,
+            )
+        publish_system_version_if_changed(
+            conn,
+            NEURO_COMMON_TEMPLATE["id"],
+            build_neuro_common_schema(),
+            build_neuro_common_copy_format(),
+            "Add conditional clinical detail inputs",
+            "Integrate built-in template fixes into init_db",
+            now,
+        )
+        record_migration(conn, "010", "built-in template clinical inputs integrated into init_db", now)
+    if not migration_applied(conn, "011"):
+        publish_system_version_if_changed(
+            conn,
+            NEURO_COMMON_TEMPLATE["id"],
+            build_neuro_common_schema(),
+            build_neuro_common_copy_format(),
+            "Unify neuro common conditional fields with genesis spec",
+            "Align neuro_common fresh and upgrade paths",
+            now,
+        )
+        record_migration(conn, "011", "neuro common alignment integrated into init_db", now)
+
+
+def migrate_add_chronic_subdural_template(conn, now):
+    if migration_applied(conn, "012"):
+        return
+    template = CHRONIC_SUBDURAL_TEMPLATE
+    if exists(conn, "SELECT 1 FROM templates WHERE id = ?", (template["id"],)):
+        record_migration(conn, "012", "add chronic subdural template", now)
+        return
+
+    schema = build_chronic_subdural_schema()
+    copy_format = build_chronic_subdural_copy_format()
+    schema_json = json.dumps(schema, ensure_ascii=False)
+    copy_format_json = json.dumps(copy_format, ensure_ascii=False)
+    display_order = conn.execute("SELECT COALESCE(MAX(display_order), 0) + 1 FROM templates").fetchone()[0]
+    conn.execute(
+        """
+        INSERT INTO templates
+          (id, label, full, category, schema_json, is_active, display_order, created_at, updated_at, status)
+        VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, 'published')
+        """,
+        (
+            template["id"],
+            template["label"],
+            template["full"],
+            template["category"],
+            schema_json,
+            display_order,
+            now,
+            now,
+        ),
+    )
+    cursor = conn.execute(
+        """
+        INSERT INTO template_versions
+          (template_id, version_number, schema_json, copy_format_json,
+           change_summary, change_reason, created_by, created_at,
+           approved_by, approved_at, status)
+        VALUES (?, 1, ?, ?, ?, ?, 'system', ?, 'system', ?, 'published')
+        """,
+        (
+            template["id"],
+            schema_json,
+            copy_format_json,
+            "Add chronic subdural hematoma template",
+            "Seed generic-v2 template for chronic subdural hematoma observations",
+            now,
+            now,
+        ),
+    )
+    version_id = cursor.lastrowid
+    conn.execute(
+        """
+        UPDATE templates
+        SET current_version_id = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (version_id, now, template["id"]),
+    )
+    conn.execute(
+        """
+        INSERT INTO template_audit_logs
+          (template_id, version_id, action, actor_name, acted_at, after_json, reason)
+        VALUES (?, ?, 'migrate', 'system', ?, ?, ?)
+        """,
+        (
+            template["id"],
+            version_id,
+            now,
+            json.dumps({"schema": schema, "copy_format": copy_format}, ensure_ascii=False),
+            "Add chronic subdural hematoma template as generic-v2",
+        ),
+    )
+    record_migration(conn, "012", "add chronic subdural template", now)
+
+
+def migrate_reconcile_integrated_template_definitions(conn, now):
+    if migration_applied(conn, "013"):
+        return
+    for template in STROKE_TYPES:
+        publish_system_version_if_changed(
+            conn,
+            template["id"],
+            build_generic_stroke_schema(template),
+            build_generic_stroke_copy_format(template),
+            "Reconcile built-in stroke template definition",
+            "Ensure init_db canonical definitions are applied to existing databases",
+            now,
+            "013",
+        )
+    publish_system_version_if_changed(
+        conn,
+        NEURO_COMMON_TEMPLATE["id"],
+        build_neuro_common_schema(),
+        build_neuro_common_copy_format(),
+        "Reconcile neuro common template definition",
+        "Ensure init_db canonical definitions are applied to existing databases",
+        now,
+        "013",
+    )
+    record_migration(conn, "013", "reconcile built-in template definitions", now)
 
 
 def migrate_stroke_templates_to_generic(conn, now):
@@ -1599,6 +2043,9 @@ def main():
         migrate_stroke_jcs_to_select(conn, now)
         migrate_jcs_option_values(conn, now)
         migrate_stroke_blank_omission_copy_format(conn, now)
+        migrate_integrated_template_fixes(conn, now)
+        migrate_add_chronic_subdural_template(conn, now)
+        migrate_reconcile_integrated_template_definitions(conn, now)
         normalize_template_version_statuses(conn)
         seed_template_groups(conn, now)
         seed_rest_options(conn)

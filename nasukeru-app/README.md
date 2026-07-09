@@ -71,7 +71,7 @@ SQLite DB
 - 画面表示と入力操作は `index.html`, `css/`, `js/` が担当する
 - テンプレートや選択肢などのマスターデータは SQLite に置く
 - `js/templates.js` はAPI呼び出しの境界として残し、画面本体の `js/app.js` がDB構造を直接知らないようにする
-- `js/field-meta.js` は入力項目キーと表示・警告・コピー出力用ラベルを対応付ける
+- `js/field-meta.js` は管理画面の旧形式表示用ラベルを対応付ける
 - `server/` はAPI、DB初期化、スモークテストを置くバックエンド領域
 - `server/nasukeru.db` はローカル生成物なのでGitには入れない
 - Flaskは必要な静的ファイルだけをルート定義して配信するホワイトリスト方式にしている
@@ -91,8 +91,8 @@ SQLite DB
   - 管理画面のPOSTでは `X-Nasukeru-Local: 1` ヘッダ付与もここに集約する
 
 - `js/field-meta.js`
-  - `data-vkey`, `data-skey`, `data-mmt` と警告・コピー出力用ラベルを対応付ける
-  - 現時点ではJS内の最小メタ定義とし、DBスキーマへの移譲は将来の整理対象
+  - 管理画面で旧 `stroke-v1` 形式を表示するためのラベルを対応付ける
+  - 通常画面は `generic-v1` / `generic-v2` のschema labelとcopy_formatを使用する
 
 - `js/validation.js`
   - 未入力警告の判定と表示
@@ -208,7 +208,7 @@ SQLite DB
 
 脳梗塞5テンプレートは `generic-v1` へ移行済みです。共通項目に加えて、MCA/ACA/PCA/ラクナ/脳幹ごとの個別観察項目を空欄フィールドとして持ちます。既存の `stroke-v1` 版は履歴に残し、DB初期化時のマイグレーション `004` で新バージョンとして適用します。マイグレーション `005` では、既存stroke項目だけを入力した場合に旧 `stroke-v1` のコピー出力と一致する `copy_format_json` へ更新します。
 
-脳卒中共通テンプレート（`neuro_common`）は `generic-v1` として追加済みです。`multi_select` と `number` を使い、意識レベル、バイタル、瞳孔・眼球所見、運動機能、NIHSS、高次脳機能、頭蓋内圧亢進症状、嚥下、安静度・ADL、排泄、治療を平坦な共通観察項目として扱います。条件分岐は `generic-v2` で対応済みです。状況グループ、派生出力は次フェーズ以降で扱います。
+脳卒中共通テンプレート（`neuro_common`）は `generic-v2` として条件分岐に対応済みです。`multi_select` と `number` を使い、意識レベル、バイタル、瞳孔・眼球所見、運動機能、NIHSS、高次脳機能、頭蓋内圧亢進症状、嚥下、安静度・ADL、排泄、治療を観察項目として扱います。慢性硬膜下血腫テンプレート（`chronic_subdural`）も `generic-v2` として追加済みです。状況グループ、派生出力は次フェーズ以降で扱います。
 
 ## 現在のデータフロー
 

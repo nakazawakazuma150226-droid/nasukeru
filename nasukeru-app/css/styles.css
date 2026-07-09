@@ -239,6 +239,8 @@ textarea.admin-input{resize:vertical;min-height:70px}
 .simple-condition-node{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.2fr) minmax(0,.9fr) minmax(0,1fr);gap:8px;align-items:start;margin-top:8px}
 .simple-condition-children{grid-column:1/-1;display:flex;flex-direction:column;gap:8px}
 .simple-condition-child{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:start;padding-left:10px;border-left:2px solid var(--bdr2)}
+.admin-discovery-target{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:8px}
+.admin-field select[multiple]{min-height:112px}
 .simple-options,.simple-range{display:flex;flex-direction:column;gap:8px}
 .simple-option-row{display:grid;grid-template-columns:1fr auto auto auto;gap:7px;align-items:center}
 .simple-note{font-size:12px;line-height:1.6;color:var(--t2)}
@@ -278,7 +280,7 @@ textarea.admin-input{resize:vertical;min-height:70px}
   .admin-table td[data-label="操作"] .btn{flex:0 0 auto}
   .admin-table-wrap{overflow:visible}
   .admin-field-grid{grid-template-columns:1fr}
-  .admin-builder-grid,.admin-condition-row,.admin-option-row,.admin-copy-insert-row,.simple-choice-grid,.simple-grid,.simple-preview-grid,.simple-option-row,.simple-condition-node,.simple-condition-child{grid-template-columns:1fr}
+  .admin-builder-grid,.admin-condition-row,.admin-option-row,.admin-copy-insert-row,.simple-choice-grid,.simple-grid,.simple-preview-grid,.simple-option-row,.simple-condition-node,.simple-condition-child,.admin-discovery-target{grid-template-columns:1fr}
   .simple-preview-field{grid-template-columns:1fr}
   .admin-modal{max-height:none}
 }

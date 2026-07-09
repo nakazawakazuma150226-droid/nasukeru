@@ -112,3 +112,19 @@ async function deleteTemplate(id, reason) {
 async function restoreTemplate(id, reason) {
   return postJson("/api/templates/" + encodeURIComponent(id) + "/restore", { reason: reason });
 }
+
+async function getAdminDiscovery() {
+  return getJson("/api/admin/discovery");
+}
+
+async function saveAdminQuickTemplates(items) {
+  return postJson("/api/admin/discovery/quick-templates", { items: items });
+}
+
+async function saveAdminSearchKeywords(items) {
+  return postJson("/api/admin/discovery/search-keywords", { items: items });
+}
+
+async function saveAdminTemplateGroups(groups) {
+  return postJson("/api/admin/discovery/template-groups", { groups: groups });
+}

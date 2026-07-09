@@ -16,6 +16,7 @@ from template_schema import (
     normalize_copy_format,
     normalize_schema,
     schema_format as get_schema_format,
+    validate_template_id,
     validate_template_payload,
     validate_copy_format_references,
 )
@@ -192,6 +193,15 @@ def require_positive_int(payload, field):
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise TemplateValidationError(f"{field} must be a positive integer")
     return value
+
+
+def require_optional_text(payload, field, fallback=""):
+    value = payload.get(field, fallback)
+    if value is None:
+        return fallback
+    if not isinstance(value, str):
+        raise TemplateValidationError(f"{field} must be a string")
+    return value.strip()
 
 
 def require_base_version_id(payload):
@@ -1153,6 +1163,261 @@ def get_rest_options():
             "SELECT label FROM rest_options ORDER BY display_order, label"
         ).fetchall()
     return jsonify([row["label"] for row in rows])
+
+
+def require_list(payload, key):
+    value = payload.get(key)
+    if not isinstance(value, list):
+        raise TemplateValidationError(f"{key} must be an array")
+    return value
+
+
+def require_discovery_text(item, key, path):
+    value = item.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise TemplateValidationError(f"{path}.{key} is required")
+    return value.strip()
+
+
+def require_discovery_id(value, field):
+    try:
+        return validate_template_id(value)
+    except SchemaValidationError as error:
+        raise TemplateValidationError(f"{field}: {error}") from error
+
+
+def validate_discovery_target(conn, target_type, target_id, field):
+    if target_type not in {"template", "group"}:
+        raise TemplateValidationError(f"{field}.target_type must be template or group")
+    require_discovery_id(target_id, f"{field}.target_id")
+    if target_type == "template":
+        row = conn.execute(
+            "SELECT id FROM templates WHERE id = ? AND is_active = 1 AND current_version_id IS NOT NULL",
+            (target_id,),
+        ).fetchone()
+        if row is None:
+            raise TemplateValidationError(f"{field}.target_id references unknown published template: {target_id}")
+        return
+    row = conn.execute(
+        "SELECT id FROM template_groups WHERE id = ? AND is_active = 1",
+        (target_id,),
+    ).fetchone()
+    if row is None:
+        raise TemplateValidationError(f"{field}.target_id references unknown active group: {target_id}")
+
+
+def discovery_quick_from_row(row):
+    return {
+        "id": row["id"],
+        "label": row["label"],
+        "sub": row["sub"],
+        "action": row["action"],
+        "display_order": row["display_order"],
+        "target": {
+            "type": row["target_type"] or "template",
+            "id": row["target_id"] or row["action"],
+        },
+    }
+
+
+def discovery_keyword_from_row(row):
+    return {
+        "id": row["id"],
+        "keyword": row["keyword"],
+        "template_action": row["template_action"],
+        "display_order": row["display_order"],
+        "target": {
+            "type": row["target_type"] or "template",
+            "id": row["target_id"] or row["template_action"],
+        },
+    }
+
+
+def discovery_group_from_row(row, items):
+    return {
+        "id": row["id"],
+        "label": row["label"],
+        "sub": row["sub"],
+        "display_order": row["display_order"],
+        "is_active": bool(row["is_active"]),
+        "items": items.get(row["id"], []),
+    }
+
+
+@app.get("/api/admin/discovery")
+def get_admin_discovery():
+    with connect() as conn:
+        quick_rows = conn.execute(
+            """
+            SELECT id, label, sub, action, target_type, target_id, display_order
+            FROM quick_templates
+            ORDER BY display_order, label
+            """
+        ).fetchall()
+        keyword_rows = conn.execute(
+            """
+            SELECT id, keyword, template_action, target_type, target_id, display_order
+            FROM search_keywords
+            ORDER BY display_order, keyword
+            """
+        ).fetchall()
+        group_rows = conn.execute(
+            """
+            SELECT id, label, sub, display_order, is_active
+            FROM template_groups
+            ORDER BY display_order, label
+            """
+        ).fetchall()
+        item_rows = conn.execute(
+            """
+            SELECT group_id, template_id
+            FROM template_group_items
+            ORDER BY group_id, display_order, template_id
+            """
+        ).fetchall()
+        template_rows = conn.execute(
+            """
+            SELECT id, label, full, is_active, current_version_id
+            FROM templates
+            ORDER BY display_order, label
+            """
+        ).fetchall()
+
+    group_items = {}
+    for row in item_rows:
+        group_items.setdefault(row["group_id"], []).append(row["template_id"])
+
+    return jsonify(
+        {
+            "quick_templates": [discovery_quick_from_row(row) for row in quick_rows],
+            "search_keywords": [discovery_keyword_from_row(row) for row in keyword_rows],
+            "template_groups": [discovery_group_from_row(row, group_items) for row in group_rows],
+            "templates": [
+                {
+                    "id": row["id"],
+                    "label": row["label"],
+                    "full": row["full"],
+                    "is_active": bool(row["is_active"]),
+                    "current_version_id": row["current_version_id"],
+                }
+                for row in template_rows
+            ],
+        }
+    )
+
+
+@app.post("/api/admin/discovery/quick-templates")
+def save_admin_quick_templates():
+    require_local_post_guard()
+    payload = require_json_body()
+    items = require_list(payload, "items")
+    normalized = []
+    with connect() as conn:
+        for index, item in enumerate(items):
+            if not isinstance(item, dict):
+                raise TemplateValidationError(f"items[{index}] must be an object")
+            path = f"items[{index}]"
+            label = require_discovery_text(item, "label", path)
+            sub = require_optional_text(item, "sub")
+            target = item.get("target") if isinstance(item.get("target"), dict) else {}
+            target_type = require_optional_text(target, "type", "template")
+            target_id = require_discovery_text(target, "id", f"{path}.target")
+            validate_discovery_target(conn, target_type, target_id, path)
+            action = require_optional_text(item, "action") or target_id
+            normalized.append((label, sub, action, target_type, target_id, index + 1))
+        conn.execute("DELETE FROM quick_templates")
+        conn.executemany(
+            """
+            INSERT INTO quick_templates (label, sub, action, target_type, target_id, display_order)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            normalized,
+        )
+    return jsonify({"ok": True, "count": len(normalized)})
+
+
+@app.post("/api/admin/discovery/search-keywords")
+def save_admin_search_keywords():
+    require_local_post_guard()
+    payload = require_json_body()
+    items = require_list(payload, "items")
+    normalized = []
+    with connect() as conn:
+        for index, item in enumerate(items):
+            if not isinstance(item, dict):
+                raise TemplateValidationError(f"items[{index}] must be an object")
+            path = f"items[{index}]"
+            keyword = require_discovery_text(item, "keyword", path)
+            target = item.get("target") if isinstance(item.get("target"), dict) else {}
+            target_type = require_optional_text(target, "type", "template")
+            target_id = require_discovery_text(target, "id", f"{path}.target")
+            validate_discovery_target(conn, target_type, target_id, path)
+            template_action = require_optional_text(item, "template_action") or target_id
+            normalized.append((keyword, template_action, target_type, target_id, index + 1))
+        conn.execute("DELETE FROM search_keywords")
+        conn.executemany(
+            """
+            INSERT INTO search_keywords (keyword, template_action, target_type, target_id, display_order)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            normalized,
+        )
+    return jsonify({"ok": True, "count": len(normalized)})
+
+
+@app.post("/api/admin/discovery/template-groups")
+def save_admin_template_groups():
+    require_local_post_guard()
+    payload = require_json_body()
+    groups = require_list(payload, "groups")
+    now = now_iso()
+    normalized_groups = []
+    normalized_items = []
+    seen_group_ids = set()
+    with connect() as conn:
+        template_ids = {
+            row["id"]
+            for row in conn.execute("SELECT id FROM templates WHERE is_active = 1 AND current_version_id IS NOT NULL").fetchall()
+        }
+        for group_index, group in enumerate(groups):
+            if not isinstance(group, dict):
+                raise TemplateValidationError(f"groups[{group_index}] must be an object")
+            path = f"groups[{group_index}]"
+            group_id = require_discovery_id(group.get("id"), f"{path}.id")
+            if group_id in seen_group_ids:
+                raise TemplateValidationError(f"{path}.id is duplicated: {group_id}")
+            seen_group_ids.add(group_id)
+            label = require_discovery_text(group, "label", path)
+            sub = require_optional_text(group, "sub")
+            is_active = bool(group.get("is_active", True))
+            items = group.get("items", [])
+            if not isinstance(items, list):
+                raise TemplateValidationError(f"{path}.items must be an array")
+            normalized_groups.append((group_id, label, sub, group_index + 1, 1 if is_active else 0, now, now))
+            for item_index, template_id in enumerate(items):
+                template_id = require_discovery_id(template_id, f"{path}.items[{item_index}]")
+                if template_id not in template_ids:
+                    raise TemplateValidationError(f"{path}.items[{item_index}] references unknown published template: {template_id}")
+                normalized_items.append((group_id, template_id, item_index + 1))
+
+        conn.execute("DELETE FROM template_group_items")
+        conn.execute("DELETE FROM template_groups")
+        conn.executemany(
+            """
+            INSERT INTO template_groups
+              (id, label, sub, display_order, is_active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            normalized_groups,
+        )
+        conn.executemany(
+            """
+            INSERT INTO template_group_items (group_id, template_id, display_order)
+            VALUES (?, ?, ?)
+            """,
+            normalized_items,
+        )
+    return jsonify({"ok": True, "count": len(normalized_groups)})
 
 
 @app.get("/api/quick-templates")

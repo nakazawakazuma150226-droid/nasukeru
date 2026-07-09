@@ -25,6 +25,7 @@ EXPECTED_GETS = [
     ("/api/health", 200),
     ("/api/admin/templates", 200),
     ("/api/admin/templates/mca", 200),
+    ("/api/admin/discovery", 200),
     ("/api/templates", 200),
     ("/api/templates/mca", 200),
     ("/api/templates/neuro_common", 200),
@@ -551,6 +552,101 @@ def run_write_tests(failures):
                 lambda group: group["id"] == "cerebral_infarction"
                 and [item["id"] for item in group["templates"]] == ["mca", "aca", "pca", "lacunar", "brainstem"],
                 "GET /api/template-groups/cerebral_infarction returns stroke group",
+                failures,
+            )
+            discovery_response = client.get("/api/admin/discovery")
+            assert_status(discovery_response, 200, "GET /api/admin/discovery", failures)
+            discovery = discovery_response.get_json() or {}
+            assert_status(
+                client.post("/api/admin/discovery/quick-templates", json={"items": []}),
+                403,
+                "POST /api/admin/discovery/quick-templates without local guard",
+                failures,
+            )
+            assert_status(
+                client.post(
+                    "/api/admin/discovery/quick-templates",
+                    json={"items": [{"label": "BAD", "target": {"type": "template", "id": "unknown"}}]},
+                    headers=LOCAL_HEADERS,
+                ),
+                400,
+                "POST /api/admin/discovery/quick-templates invalid target",
+                failures,
+            )
+            groups_payload = copy.deepcopy(discovery.get("template_groups", []))
+            groups_payload.append(
+                {
+                    "id": "smoke_group",
+                    "label": "Smoke Group",
+                    "sub": "Smoke managed group",
+                    "is_active": True,
+                    "items": ["mca", "neuro_common"],
+                }
+            )
+            assert_status(
+                client.post(
+                    "/api/admin/discovery/template-groups",
+                    json={"groups": groups_payload},
+                    headers=LOCAL_HEADERS,
+                ),
+                200,
+                "POST /api/admin/discovery/template-groups",
+                failures,
+            )
+            quick_payload = copy.deepcopy(discovery.get("quick_templates", []))
+            quick_payload.append(
+                {
+                    "label": "Smoke導線",
+                    "sub": "managed",
+                    "action": "smoke_group",
+                    "target": {"type": "group", "id": "smoke_group"},
+                }
+            )
+            assert_status(
+                client.post(
+                    "/api/admin/discovery/quick-templates",
+                    json={"items": quick_payload},
+                    headers=LOCAL_HEADERS,
+                ),
+                200,
+                "POST /api/admin/discovery/quick-templates",
+                failures,
+            )
+            keyword_payload = copy.deepcopy(discovery.get("search_keywords", []))
+            keyword_payload.append(
+                {
+                    "keyword": "smoke-keyword",
+                    "template_action": "smoke_group",
+                    "target": {"type": "group", "id": "smoke_group"},
+                }
+            )
+            assert_status(
+                client.post(
+                    "/api/admin/discovery/search-keywords",
+                    json={"items": keyword_payload},
+                    headers=LOCAL_HEADERS,
+                ),
+                200,
+                "POST /api/admin/discovery/search-keywords",
+                failures,
+            )
+            assert_json_contains(
+                client.get("/api/template-groups/smoke_group"),
+                lambda group: group["id"] == "smoke_group"
+                and [item["id"] for item in group["templates"]] == ["mca", "neuro_common"],
+                "GET /api/template-groups/smoke_group returns managed group",
+                failures,
+            )
+            assert_json_contains(
+                client.get("/api/quick-templates"),
+                lambda items: any(item["label"] == "Smoke導線" and item["target"] == {"type": "group", "id": "smoke_group"} for item in items),
+                "GET /api/quick-templates includes managed discovery item",
+                failures,
+            )
+            assert_json_contains(
+                client.get("/api/search-keywords"),
+                lambda items: any(item["keyword"] == "smoke-keyword" and item["target"] == {"type": "group", "id": "smoke_group"} for item in items),
+                "GET /api/search-keywords includes managed discovery keyword",
                 failures,
             )
 

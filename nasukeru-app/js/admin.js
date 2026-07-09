@@ -978,8 +978,246 @@ async function openHistoryModal(item) {
   }
 }
 
+function cloneDiscovery(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
+function publishedTemplateOptions(discovery) {
+  return (discovery.templates || []).filter(function(template) {
+    return template.is_active && template.current_version_id;
+  }).map(function(template) {
+    return { value: template.id, label: template.label + " / " + template.full };
+  });
+}
+
+function activeGroupOptions(discovery) {
+  return (discovery.template_groups || []).filter(function(group) {
+    return group.is_active !== false;
+  }).map(function(group) {
+    return { value: group.id, label: group.label + " / " + group.id };
+  });
+}
+
+function targetOptions(discovery, type) {
+  return type === "group" ? activeGroupOptions(discovery) : publishedTemplateOptions(discovery);
+}
+
+function normalizeTarget(item) {
+  item.target = item.target && typeof item.target === "object" ? item.target : { type: "template", id: "" };
+  item.target.type = item.target.type === "group" ? "group" : "template";
+  item.target.id = item.target.id || "";
+  return item.target;
+}
+
+function renderTargetControls(discovery, item, refresh) {
+  var target = normalizeTarget(item);
+  var wrap = document.createElement("div");
+  wrap.className = "admin-discovery-target";
+  var type = formSelect("対象種別", "target_type", target.type, [
+    { value: "template", label: "テンプレート" },
+    { value: "group", label: "グループ" },
+  ]);
+  type.querySelector("select").addEventListener("change", function(event) {
+    target.type = event.target.value;
+    var choices = targetOptions(discovery, target.type);
+    target.id = choices[0] ? choices[0].value : "";
+    refresh();
+  });
+  var choices = targetOptions(discovery, target.type);
+  if (!choices.some(function(choice) { return choice.value === target.id; }) && choices[0]) {
+    target.id = choices[0].value;
+  }
+  var id = formSelect("対象", "target_id", target.id, choices.length ? choices : [{ value: "", label: "対象なし" }]);
+  id.querySelector("select").addEventListener("change", function(event) {
+    target.id = event.target.value;
+  });
+  wrap.appendChild(type);
+  wrap.appendChild(id);
+  return wrap;
+}
+
+function discoveryTextField(label, value, onInput) {
+  var field = formField(label, "", value || "");
+  var inputNode = field.querySelector(".admin-input");
+  inputNode.addEventListener("input", function() { onInput(inputNode.value); });
+  return field;
+}
+
+function renderDiscoveryQuickRow(discovery, item, index, refresh) {
+  var card = document.createElement("div");
+  card.className = "simple-section-card";
+  card.appendChild(discoveryTextField("表示名", item.label, function(value) { item.label = value; }));
+  card.appendChild(discoveryTextField("補足", item.sub, function(value) { item.sub = value; }));
+  card.appendChild(discoveryTextField("互換キー", item.action, function(value) { item.action = value; }));
+  card.appendChild(renderTargetControls(discovery, item, refresh));
+  card.appendChild(button("削除", "btn bg admin-row-btn danger", function() {
+    discovery.quick_templates.splice(index, 1);
+    refresh();
+  }));
+  return card;
+}
+
+function renderDiscoveryKeywordRow(discovery, item, index, refresh) {
+  var card = document.createElement("div");
+  card.className = "simple-section-card";
+  card.appendChild(discoveryTextField("検索語", item.keyword, function(value) { item.keyword = value; }));
+  card.appendChild(discoveryTextField("互換キー", item.template_action, function(value) { item.template_action = value; }));
+  card.appendChild(renderTargetControls(discovery, item, refresh));
+  card.appendChild(button("削除", "btn bg admin-row-btn danger", function() {
+    discovery.search_keywords.splice(index, 1);
+    refresh();
+  }));
+  return card;
+}
+
+function renderGroupItems(discovery, group) {
+  var choices = publishedTemplateOptions(discovery);
+  var selectNode = document.createElement("select");
+  selectNode.className = "admin-input";
+  selectNode.multiple = true;
+  choices.forEach(function(choice) {
+    var option = document.createElement("option");
+    option.value = choice.value;
+    option.textContent = choice.label;
+    option.selected = (group.items || []).indexOf(choice.value) >= 0;
+    selectNode.appendChild(option);
+  });
+  selectNode.addEventListener("change", function() {
+    group.items = Array.prototype.slice.call(selectNode.selectedOptions).map(function(option) {
+      return option.value;
+    });
+  });
+  return rowLike("テンプレート", selectNode);
+}
+
+function rowLike(label, control) {
+  var wrap = document.createElement("label");
+  wrap.className = "admin-field";
+  var caption = document.createElement("span");
+  caption.textContent = label;
+  wrap.appendChild(caption);
+  wrap.appendChild(control);
+  return wrap;
+}
+
+function renderDiscoveryGroupRow(discovery, group, index, refresh) {
+  var card = document.createElement("div");
+  card.className = "simple-section-card";
+  card.appendChild(discoveryTextField("ID", group.id, function(value) { group.id = value; }));
+  card.appendChild(discoveryTextField("表示名", group.label, function(value) { group.label = value; }));
+  card.appendChild(discoveryTextField("補足", group.sub, function(value) { group.sub = value; }));
+  var active = document.createElement("input");
+  active.type = "checkbox";
+  active.checked = group.is_active !== false;
+  active.addEventListener("change", function() {
+    group.is_active = active.checked;
+    refresh();
+  });
+  card.appendChild(rowLike("有効", active));
+  card.appendChild(renderGroupItems(discovery, group));
+  card.appendChild(button("削除", "btn bg admin-row-btn danger", function() {
+    discovery.template_groups.splice(index, 1);
+    refresh();
+  }));
+  return card;
+}
+
+function renderDiscoverySection(title, items, addLabel, onAdd, renderRow, discovery, refresh) {
+  var section = formSection(title);
+  items.forEach(function(item, index) {
+    section.appendChild(renderRow(discovery, item, index, refresh));
+  });
+  section.appendChild(button(addLabel, "btn bg", function() {
+    onAdd();
+    refresh();
+  }));
+  return section;
+}
+
+async function openDiscoveryModal() {
+  openModal("検索・導線設定", "検索語、クイックテンプレート、グループを管理します");
+  var body = $("admin-modal-body");
+  var actions = $("admin-modal-actions");
+  body.appendChild(document.createTextNode("読み込み中"));
+  actions.appendChild(button("閉じる", "btn bg", closeModal));
+  try {
+    var discovery = cloneDiscovery(await getAdminDiscovery());
+    function refresh() {
+      clearNode(body);
+      clearNode(actions);
+      body.appendChild(renderDiscoverySection(
+        "クイックテンプレート",
+        discovery.quick_templates,
+        "クイックテンプレートを追加",
+        function() {
+          var choices = publishedTemplateOptions(discovery);
+          discovery.quick_templates.push({
+            label: "",
+            sub: "",
+            action: "",
+            target: { type: "template", id: choices[0] ? choices[0].value : "" },
+          });
+        },
+        renderDiscoveryQuickRow,
+        discovery,
+        refresh
+      ));
+      body.appendChild(renderDiscoverySection(
+        "検索キーワード",
+        discovery.search_keywords,
+        "検索語を追加",
+        function() {
+          var choices = publishedTemplateOptions(discovery);
+          discovery.search_keywords.push({
+            keyword: "",
+            template_action: "",
+            target: { type: "template", id: choices[0] ? choices[0].value : "" },
+          });
+        },
+        renderDiscoveryKeywordRow,
+        discovery,
+        refresh
+      ));
+      body.appendChild(renderDiscoverySection(
+        "テンプレートグループ",
+        discovery.template_groups,
+        "グループを追加",
+        function() {
+          discovery.template_groups.push({
+            id: "",
+            label: "",
+            sub: "",
+            is_active: true,
+            items: [],
+          });
+        },
+        renderDiscoveryGroupRow,
+        discovery,
+        refresh
+      ));
+      actions.appendChild(button("閉じる", "btn bg", closeModal));
+      actions.appendChild(button("保存", "btn bp", async function() {
+        try {
+          await saveAdminTemplateGroups(discovery.template_groups);
+          await saveAdminQuickTemplates(discovery.quick_templates);
+          await saveAdminSearchKeywords(discovery.search_keywords);
+          closeModal();
+          toast("検索・導線設定を保存しました", "#2d7a3a");
+        } catch (error) {
+          setModalError(showErrorForApi(error));
+        }
+      }));
+    }
+    refresh();
+  } catch (error) {
+    clearNode(body);
+    setModalError(showErrorForApi(error));
+  }
+}
+
 function initAdminEvents() {
   $("new-template-btn").addEventListener("click", openCreateModal);
+  $("open-discovery-btn").addEventListener("click", openDiscoveryModal);
   $("refresh-admin-btn").addEventListener("click", loadAdminTemplates);
   $("admin-modal-close").addEventListener("click", closeModal);
   $("admin-modal").addEventListener("click", function(event) {

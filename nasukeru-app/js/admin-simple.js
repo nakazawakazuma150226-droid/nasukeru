@@ -1,11 +1,11 @@
 (function(root, factory) {
   root.NasukeruAdminSimple = factory(
     root.NasukeruSimpleTemplateModel,
-    root.NasukeruGenericValues,
+    root.NasukeruGenericRenderer,
     root.NasukeruCopyRenderer,
     root.NasukeruSafetyRules
   );
-})(typeof globalThis !== "undefined" ? globalThis : this, function(modelApi, genericValues, copyRenderer, safetyRules) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function(modelApi, genericRenderer, copyRenderer, safetyRules) {
   function el(tag, className, text) {
     var node = document.createElement(tag);
     if (className) node.className = className;
@@ -57,52 +57,6 @@
     items.splice(next, 0, item);
   }
 
-  function makePreviewInput(section, field) {
-    var wrap = el("label", "simple-preview-field");
-    wrap.appendChild(el("span", "", field.label));
-    var control;
-    if (field.type === "textarea") {
-      control = document.createElement("textarea");
-      control.rows = 2;
-    } else if (field.type === "select") {
-      control = document.createElement("select");
-      control.appendChild(new Option("", ""));
-      (field.options || []).forEach(function(option) {
-        control.appendChild(new Option(option.label || option.value, option.value));
-      });
-    } else if (field.type === "multi_select") {
-      control = input("", "", "text");
-      control.placeholder = "複数選択は「、」区切り";
-    } else {
-      control = input("", "", "text");
-      if (field.type === "number") control.inputMode = "decimal";
-    }
-    control.className = "admin-input generic-input";
-    control.dataset.sectionId = section.id;
-    control.dataset.sectionLabel = section.label;
-    control.dataset.fieldId = field.id;
-    control.dataset.fieldLabel = field.label;
-    control.dataset.fieldType = field.type || "text";
-    control.dataset.blankPolicy = field.blankPolicy || "";
-    control.genericOptionLabels = {};
-    (field.options || []).forEach(function(option) {
-      control.genericOptionLabels[option.value] = option.label || option.value;
-    });
-    wrap.appendChild(control);
-    if (field.unit) wrap.appendChild(el("small", "", field.unit));
-    return wrap;
-  }
-
-  function formatValuesForCopy(container) {
-    var displayValues = {};
-    container.querySelectorAll(".generic-input").forEach(function(inputNode) {
-      var ref = genericValues.fieldRef(inputNode);
-      var typed = genericValues.parseInputValue(inputNode);
-      displayValues[ref] = genericValues.formatInputValueForCopy(inputNode, typed);
-    });
-    return displayValues;
-  }
-
   function create(container, initialModel, options) {
     options = options || {};
     var model = initialModel || modelApi.blankEditorModel();
@@ -116,6 +70,236 @@
       renderCopySettings();
       renderPreview();
       renderDeveloperMode();
+    }
+
+    function fieldRef(sectionModel, field) {
+      return sectionModel.id + "." + field.id;
+    }
+
+    function fieldChoices() {
+      var choices = [];
+      model.sections.forEach(function(sectionModel) {
+        (sectionModel.fields || []).forEach(function(field) {
+          choices.push({
+            value: fieldRef(sectionModel, field),
+            label: (sectionModel.label || sectionModel.id) + " / " + (field.label || field.id),
+            type: field.type || "text",
+            options: field.options || [],
+          });
+        });
+      });
+      return choices;
+    }
+
+    function fieldMeta(ref) {
+      return fieldChoices().find(function(choice) { return choice.value === ref; }) || null;
+    }
+
+    function opsForType(type) {
+      if (type === "number") {
+        return [
+          { value: "eq", label: "等しい" },
+          { value: "neq", label: "等しくない" },
+          { value: "gt", label: "より大きい" },
+          { value: "gte", label: "以上" },
+          { value: "lt", label: "より小さい" },
+          { value: "lte", label: "以下" },
+          { value: "is_blank", label: "空欄" },
+        ];
+      }
+      if (type === "select") {
+        return [
+          { value: "eq", label: "等しい" },
+          { value: "neq", label: "等しくない" },
+          { value: "in", label: "いずれか" },
+          { value: "not_in", label: "いずれでもない" },
+          { value: "is_blank", label: "空欄" },
+        ];
+      }
+      if (type === "multi_select") {
+        return [
+          { value: "contains", label: "含む" },
+          { value: "is_blank", label: "空欄" },
+        ];
+      }
+      return [
+        { value: "eq", label: "等しい" },
+        { value: "neq", label: "等しくない" },
+        { value: "is_blank", label: "空欄" },
+      ];
+    }
+
+    function defaultFieldCondition() {
+      var choices = fieldChoices();
+      var first = choices[0];
+      if (!first) return null;
+      var op = opsForType(first.type)[0].value;
+      return op === "is_blank" ? { op: op, field: first.value } : { op: op, field: first.value, value: "" };
+    }
+
+    function conditionKind(condition) {
+      if (!condition) return "none";
+      if (condition.op === "and" || condition.op === "or" || condition.op === "not") return condition.op;
+      return "field";
+    }
+
+    function normalizeConditionValue(condition, meta) {
+      if (!condition || condition.op === "is_blank") {
+        if (condition) delete condition.value;
+        return;
+      }
+      if (condition.op === "in" || condition.op === "not_in") {
+        if (!Array.isArray(condition.value)) condition.value = condition.value ? [condition.value] : [];
+        return;
+      }
+      if (meta && meta.type === "number") {
+        var numeric = Number(condition.value);
+        condition.value = Number.isFinite(numeric) ? numeric : "";
+      } else if (Array.isArray(condition.value)) {
+        condition.value = condition.value[0] || "";
+      }
+    }
+
+    function replaceCondition(target, key, next) {
+      if (next) target[key] = next;
+      else delete target[key];
+      refresh();
+    }
+
+    function conditionValueControl(condition, meta, onChange) {
+      if (!condition || condition.op === "is_blank") {
+        var disabled = input("", "", "text");
+        disabled.disabled = true;
+        return disabled;
+      }
+      if (meta && (meta.type === "select" || meta.type === "multi_select")) {
+        if (condition.op === "in" || condition.op === "not_in") {
+          var multi = document.createElement("select");
+          multi.className = "admin-input";
+          multi.multiple = true;
+          (meta.options || []).forEach(function(optionModel) {
+            var opt = document.createElement("option");
+            opt.value = optionModel.value;
+            opt.textContent = optionModel.label || optionModel.value;
+            opt.selected = Array.isArray(condition.value) && condition.value.indexOf(optionModel.value) >= 0;
+            multi.appendChild(opt);
+          });
+          multi.addEventListener("change", function() {
+            condition.value = Array.prototype.slice.call(multi.selectedOptions).map(function(opt) { return opt.value; });
+            onChange();
+          });
+          return multi;
+        }
+        var optionSelect = select(condition.value, [{ value: "", label: "値を選択" }].concat(meta.options || []));
+        optionSelect.addEventListener("change", function() {
+          condition.value = optionSelect.value;
+          onChange();
+        });
+        return optionSelect;
+      }
+      var valueInput = input(condition.value, "", meta && meta.type === "number" ? "number" : "text");
+      valueInput.addEventListener("change", function() {
+        condition.value = valueInput.value;
+        normalizeConditionValue(condition, meta);
+        onChange();
+      });
+      return valueInput;
+    }
+
+    function renderConditionNode(condition, onChange, depth) {
+      depth = depth || 0;
+      var wrap = el("div", "simple-condition-node");
+      var kind = conditionKind(condition);
+      var kindSelect = select(kind, [
+        { value: "none", label: "条件なし" },
+        { value: "field", label: "項目条件" },
+        { value: "and", label: "すべて満たす" },
+        { value: "or", label: "いずれかを満たす" },
+        { value: "not", label: "満たさない" },
+      ]);
+      kindSelect.addEventListener("change", function() {
+        if (kindSelect.value === "none") onChange(null);
+        else if (kindSelect.value === "field") onChange(defaultFieldCondition());
+        else if (kindSelect.value === "not") onChange({ op: "not", condition: defaultFieldCondition() });
+        else onChange({ op: kindSelect.value, conditions: [defaultFieldCondition()].filter(Boolean) });
+      });
+      wrap.appendChild(kindSelect);
+      if (!condition || kind === "none") return wrap;
+
+      if (kind === "field") {
+        var choices = fieldChoices();
+        var fieldSelect = select(condition.field, choices.length ? choices : [{ value: "", label: "項目なし" }]);
+        fieldSelect.addEventListener("change", function() {
+          condition.field = fieldSelect.value;
+          var meta = fieldMeta(condition.field);
+          var ops = opsForType(meta && meta.type);
+          if (!ops.some(function(item) { return item.value === condition.op; })) condition.op = ops[0].value;
+          normalizeConditionValue(condition, meta);
+          onChange(condition);
+        });
+        wrap.appendChild(fieldSelect);
+        var meta = fieldMeta(condition.field);
+        var opSelect = select(condition.op, opsForType(meta && meta.type));
+        opSelect.addEventListener("change", function() {
+          condition.op = opSelect.value;
+          normalizeConditionValue(condition, meta);
+          onChange(condition);
+        });
+        wrap.appendChild(opSelect);
+        wrap.appendChild(conditionValueControl(condition, meta, function() { onChange(condition); }));
+        return wrap;
+      }
+
+      if (kind === "not") {
+        wrap.appendChild(renderConditionNode(condition.condition || null, function(next) {
+          condition.condition = next || defaultFieldCondition();
+          onChange(condition);
+        }, depth + 1));
+        return wrap;
+      }
+
+      var children = Array.isArray(condition.conditions) ? condition.conditions : [];
+      var childBox = el("div", "simple-condition-children");
+      children.forEach(function(child, index) {
+        var line = el("div", "simple-condition-child");
+        line.appendChild(renderConditionNode(child, function(next) {
+          if (next) children[index] = next;
+          else children.splice(index, 1);
+          condition.conditions = children;
+          onChange(condition);
+        }, depth + 1));
+        var remove = el("button", "btn bg admin-row-btn danger", "削除");
+        remove.type = "button";
+        remove.addEventListener("click", function() {
+          children.splice(index, 1);
+          condition.conditions = children;
+          onChange(condition);
+        });
+        line.appendChild(remove);
+        childBox.appendChild(line);
+      });
+      wrap.appendChild(childBox);
+      if (depth < 9) {
+        var add = el("button", "btn bg admin-row-btn", "条件を追加");
+        add.type = "button";
+        add.addEventListener("click", function() {
+          children.push(defaultFieldCondition());
+          condition.conditions = children.filter(Boolean);
+          onChange(condition);
+        });
+        wrap.appendChild(add);
+      }
+      return wrap;
+    }
+
+    function conditionEditor(label, condition, onChange) {
+      var details = document.createElement("details");
+      details.className = "simple-condition-editor";
+      var summary = document.createElement("summary");
+      summary.textContent = label;
+      details.appendChild(summary);
+      details.appendChild(renderConditionNode(condition || null, onChange, 0));
+      return details;
     }
 
     function renderBasics() {
@@ -184,6 +368,9 @@
         refresh();
       });
       card.appendChild(row("コピー文での出し方", style));
+      card.appendChild(conditionEditor("セクションの表示条件", sectionModel.visibleIf, function(next) {
+        replaceCondition(sectionModel, "visibleIf", next);
+      }));
 
       sectionModel.fields.forEach(function(field, fieldIndex) {
         card.appendChild(renderField(sectionModel, field, fieldIndex));
@@ -246,6 +433,12 @@
         grid.appendChild(renderRange(field, "warningRange", "注意が必要な範囲"));
       }
       details.appendChild(grid);
+      details.appendChild(conditionEditor("表示条件", field.visibleIf, function(next) {
+        replaceCondition(field, "visibleIf", next);
+      }));
+      details.appendChild(conditionEditor("必須条件", field.requiredIf, function(next) {
+        replaceCondition(field, "requiredIf", next);
+      }));
       var actions = el("div", "simple-inline-actions");
       [["上へ", -1], ["下へ", 1]].forEach(function(pair) {
         var btn = el("button", "btn bg admin-row-btn", pair[0]);
@@ -352,19 +545,16 @@
       var grid = el("div", "simple-preview-grid");
       var formSide = el("div", "simple-preview-box");
       formSide.appendChild(el("h4", "", "実際の入力画面"));
-      schema.sections.forEach(function(sectionModel) {
-        formSide.appendChild(el("div", "simple-preview-section", sectionModel.label));
-        sectionModel.fields.forEach(function(field) {
-          formSide.appendChild(makePreviewInput(sectionModel, field));
-        });
-      });
+      genericRenderer.renderGenericBody(formSide, schema);
       var copySide = el("div", "simple-preview-box");
       copySide.appendChild(el("h4", "", "コピー文"));
       var pre = el("pre", "admin-json simple-copy-preview");
       copySide.appendChild(pre);
       function updatePreview() {
-        var values = formatValuesForCopy(formSide);
-        var result = copyRenderer.renderGenericTemplateCopyResult(copyFormat, values, values);
+        genericRenderer.updateConditions(formSide);
+        var values = genericRenderer.collectCopyValues(formSide);
+        var conditionValues = genericRenderer.collectConditionValues(formSide);
+        var result = copyRenderer.renderGenericTemplateCopyResult(copyFormat, values, conditionValues);
         pre.textContent = result.text;
       }
       formSide.addEventListener("input", updatePreview);

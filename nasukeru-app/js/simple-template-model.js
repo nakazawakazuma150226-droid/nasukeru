@@ -66,6 +66,7 @@
           id: section.id || randomId("sec"),
           label: section.label || "セクション",
           displayOrder: typeof section.displayOrder === "number" ? section.displayOrder : sectionIndex + 1,
+          visibleIf: clone(section.visibleIf) || null,
           fields: (section.fields || []).map(fieldToModel),
           copyStyle: inferSectionCopyStyle(section, template.copy_format),
         };
@@ -123,7 +124,7 @@
     return {
       schemaFormat: "generic-v2",
       sections: (model.sections || []).map(function(section, sectionIndex) {
-        return {
+        var nextSection = {
           id: section.id || randomId("sec"),
           label: section.label || "セクション",
           displayOrder: sectionIndex + 1,
@@ -161,6 +162,8 @@
             return next;
           }),
         };
+        if (section.visibleIf) nextSection.visibleIf = clone(section.visibleIf);
+        return nextSection;
       }),
     };
   }
@@ -214,6 +217,7 @@
       id: randomId("sec"),
       label: "新しいセクション",
       displayOrder: model.sections.length + 1,
+      visibleIf: null,
       copyStyle: "stacked",
       fields: [],
     });

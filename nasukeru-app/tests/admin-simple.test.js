@@ -74,3 +74,45 @@ test("automatic copy compiler omits blank fields", () => {
     separator: "、",
   });
 });
+
+test("condition metadata round-trips through simple editor model", () => {
+  const visibleIf = { op: "eq", field: "status.phase", value: "postop" };
+  const requiredIf = { op: "contains", field: "status.symptoms", value: "headache" };
+  const editor = model.schemaToEditorModel({
+    schema: {
+      schemaFormat: "generic-v2",
+      sections: [
+        {
+          id: "status",
+          label: "状態",
+          visibleIf,
+          fields: [
+            {
+              id: "phase",
+              label: "フェーズ",
+              type: "select",
+              options: [{ value: "postop", label: "術後" }],
+            },
+            {
+              id: "symptoms",
+              label: "症状",
+              type: "multi_select",
+              options: [{ value: "headache", label: "頭痛" }],
+            },
+            {
+              id: "memo",
+              label: "メモ",
+              type: "text",
+              visibleIf,
+              requiredIf,
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const schema = model.editorModelToSchema(editor);
+  assert.deepEqual(schema.sections[0].visibleIf, visibleIf);
+  assert.deepEqual(schema.sections[0].fields[2].visibleIf, visibleIf);
+  assert.deepEqual(schema.sections[0].fields[2].requiredIf, requiredIf);
+});

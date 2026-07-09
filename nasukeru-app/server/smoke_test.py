@@ -603,9 +603,24 @@ def run_write_tests(failures):
             create_response = client.post("/api/templates", json=create_payload, headers=LOCAL_HEADERS)
             assert_status(create_response, 201, "POST /api/templates", failures)
             assert_status(client.post("/api/templates", json=create_payload, headers=LOCAL_HEADERS), 409, "POST /api/templates duplicate", failures)
-            assert_status(client.get("/api/templates/test_template"), 200, "GET /api/templates/test_template", failures)
+            assert_status(client.get("/api/templates/test_template"), 404, "GET /api/templates/test_template before initial publish", failures)
             created_detail = client.get("/api/admin/templates/test_template")
             assert_status(created_detail, 200, "GET /api/admin/templates/test_template before update", failures)
+            assert_json_contains(
+                created_detail,
+                lambda item: item["status"] == "draft" and item["current_version_id"] is None,
+                "GET /api/admin/templates/test_template returns draft-only template",
+                failures,
+            )
+            initial_version_id = (create_response.get_json() or {}).get("version_id")
+            initial_publish_response = client.post(
+                f"/api/templates/test_template/versions/{initial_version_id}/publish",
+                json={"reason": "smoke initial publish"},
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(initial_publish_response, 200, "POST /api/templates/test_template/versions/<id>/initial publish", failures)
+            assert_status(client.get("/api/templates/test_template"), 200, "GET /api/templates/test_template after initial publish", failures)
+            created_detail = client.get("/api/admin/templates/test_template")
             base_version_id = (created_detail.get_json() or {}).get("current_version_id")
 
             update_payload = {
@@ -803,6 +818,13 @@ def run_write_tests(failures):
                 "POST /api/templates generic-v1 no unreferenced warnings",
                 failures,
             )
+            generic_initial_version_id = (generic_create_response.get_json() or {}).get("version_id")
+            generic_publish_response = client.post(
+                f"/api/templates/generic_test/versions/{generic_initial_version_id}/publish",
+                json={"reason": "smoke generic initial publish"},
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(generic_publish_response, 200, "POST /api/templates generic-v1 initial publish", failures)
             generic_detail = client.get("/api/admin/templates/generic_test")
             assert_status(generic_detail, 200, "GET /api/admin/templates/generic_test", failures)
             assert_json_contains(
@@ -864,6 +886,13 @@ def run_write_tests(failures):
             publish_gate_payload["id"] = "generic_publish_gate"
             publish_gate_response = client.post("/api/templates", json=publish_gate_payload, headers=LOCAL_HEADERS)
             assert_status(publish_gate_response, 201, "POST /api/templates publish gate baseline", failures)
+            publish_gate_initial_version_id = (publish_gate_response.get_json() or {}).get("version_id")
+            publish_gate_initial_publish = client.post(
+                f"/api/templates/generic_publish_gate/versions/{publish_gate_initial_version_id}/publish",
+                json={"reason": "smoke publish gate initial publish"},
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(publish_gate_initial_publish, 200, "POST /api/templates publish gate initial publish", failures)
             publish_gate_detail = client.get("/api/admin/templates/generic_publish_gate")
             publish_gate_base_version_id = (publish_gate_detail.get_json() or {}).get("current_version_id")
             publish_gate_draft = client.post(
@@ -981,6 +1010,16 @@ def run_write_tests(failures):
                 "POST /api/templates generic-v2 condition",
                 failures,
             )
+            generic_v2_initial = client.get("/api/templates/generic_v2_test")
+            assert_status(generic_v2_initial, 404, "GET /api/templates/generic_v2_test before initial publish", failures)
+            generic_v2_versions = client.get("/api/templates/generic_v2_test/versions")
+            generic_v2_initial_version_id = (generic_v2_versions.get_json() or [{}])[0].get("id")
+            generic_v2_initial_publish = client.post(
+                f"/api/templates/generic_v2_test/versions/{generic_v2_initial_version_id}/publish",
+                json={"reason": "smoke generic-v2 initial publish"},
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(generic_v2_initial_publish, 200, "POST /api/templates generic-v2 initial publish", failures)
             generic_v2_detail = client.get("/api/templates/generic_v2_test")
             assert_status(generic_v2_detail, 200, "GET /api/templates/generic_v2_test", failures)
             assert_json_contains(
@@ -1091,7 +1130,15 @@ def run_write_tests(failures):
             }
             section_v2_response = client.post("/api/templates", json=section_v2_payload, headers=LOCAL_HEADERS)
             assert_status(section_v2_response, 201, "POST /api/templates generic-v2 accepts section visibleIf", failures)
+            section_v2_initial_version_id = (section_v2_response.get_json() or {}).get("version_id")
+            section_v2_publish = client.post(
+                f"/api/templates/section_v2_test/versions/{section_v2_initial_version_id}/publish",
+                json={"reason": "smoke section visibleIf initial publish"},
+                headers=LOCAL_HEADERS,
+            )
+            assert_status(section_v2_publish, 200, "POST /api/templates section visibleIf initial publish", failures)
             section_v2_detail = client.get("/api/templates/section_v2_test")
+            assert_status(section_v2_detail, 200, "GET /api/templates/section_v2_test", failures)
             assert_json_contains(
                 section_v2_detail,
                 lambda item: item["schema"]["sections"][1]["visibleIf"] == {"op": "eq", "field": "phase.p", "value": "pre"},

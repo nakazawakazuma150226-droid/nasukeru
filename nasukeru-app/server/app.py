@@ -194,6 +194,17 @@ def require_positive_int(payload, field):
     return value
 
 
+def require_base_version_id(payload):
+    if "base_version_id" not in payload:
+        raise TemplateValidationError("base_version_id is required")
+    value = payload.get("base_version_id")
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise TemplateValidationError("base_version_id must be a positive integer or null")
+    return value
+
+
 def allowed_local_origin(value):
     if not value:
         return False
@@ -228,7 +239,7 @@ def template_summary_from_row(row):
     }
     if "current_version_number" in row.keys():
         summary["current_version_number"] = row["current_version_number"]
-    if "schema_json" in row.keys():
+    if "schema_json" in row.keys() and row["schema_json"] is not None:
         schema = parse_json_value(row["schema_json"])
         validate_db_template_schema(schema)
         summary["schema_format"] = get_schema_format(schema)
@@ -275,9 +286,18 @@ def fetch_template_state(conn, template_id):
           t.created_at,
           t.updated_at,
           v.schema_json AS current_schema_json,
-          v.copy_format_json AS current_copy_format_json
+          v.copy_format_json AS current_copy_format_json,
+          latest.schema_json AS latest_schema_json,
+          latest.copy_format_json AS latest_copy_format_json
         FROM templates t
         LEFT JOIN template_versions v ON v.id = t.current_version_id
+        LEFT JOIN template_versions latest ON latest.id = (
+            SELECT tv.id
+            FROM template_versions tv
+            WHERE tv.template_id = t.id
+            ORDER BY tv.version_number DESC
+            LIMIT 1
+        )
         WHERE t.id = ?
         """,
         (template_id,),
@@ -340,9 +360,11 @@ def require_unreferenced_confirmation(payload, schema, copy_format):
 
 
 def admin_template_detail_from_row(row):
-    schema = parse_json_value(row["current_schema_json"])
+    schema_json = row["current_schema_json"] or row["latest_schema_json"]
+    copy_format_json = row["current_copy_format_json"] if row["current_schema_json"] is not None else row["latest_copy_format_json"]
+    schema = parse_json_value(schema_json)
     schema = normalize_db_template_schema(schema)
-    copy_format = parse_json_value(row["current_copy_format_json"])
+    copy_format = parse_json_value(copy_format_json)
     return {
         **template_summary_from_row(row),
         "schema": schema,
@@ -463,6 +485,7 @@ def get_templates():
             FROM templates t
             LEFT JOIN template_versions v ON v.id = t.current_version_id
             WHERE (? = 1 OR t.is_active = 1)
+              AND t.current_version_id IS NOT NULL
             ORDER BY t.display_order, t.label
             """,
             (1 if include_inactive else 0,),
@@ -542,7 +565,7 @@ def create_template():
             INSERT INTO templates
               (id, label, full, category, schema_json, is_active, display_order,
                created_at, updated_at, current_version_id, status)
-            VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, NULL, 'published')
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, NULL, 'draft')
             """,
             (
                 validated["id"],
@@ -559,8 +582,8 @@ def create_template():
             """
             INSERT INTO template_versions
               (template_id, version_number, schema_json, copy_format_json,
-               change_summary, change_reason, created_by, created_at, approved_by, approved_at, status)
-            VALUES (?, 1, ?, ?, ?, ?, 'local', ?, 'local', ?, 'published')
+               change_summary, change_reason, created_by, created_at, approved_by, approved_at, base_version_id, status)
+            VALUES (?, 1, ?, ?, ?, ?, 'local', ?, NULL, NULL, NULL, 'draft')
             """,
             (
                 validated["id"],
@@ -569,18 +592,9 @@ def create_template():
                 change_summary,
                 validated["change_reason"],
                 timestamp,
-                timestamp,
             ),
         )
         version_id = cursor.lastrowid
-        conn.execute(
-            """
-            UPDATE templates
-            SET current_version_id = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (version_id, timestamp, validated["id"]),
-        )
         insert_audit_log(
             conn,
             validated["id"],
@@ -600,7 +614,7 @@ def create_template():
         raise
     finally:
         conn.close()
-    response = {"ok": True, "template": summary}
+    response = {"ok": True, "template": summary, "version_id": version_id, "status": "draft"}
     if warnings:
         response["warnings"] = warnings
     return jsonify(response), 201
@@ -609,7 +623,7 @@ def create_template():
 @app.post("/api/templates/<template_id>/versions")
 def create_template_version(template_id):
     payload = require_json_body()
-    base_version_id = require_positive_int(payload, "base_version_id")
+    base_version_id = require_base_version_id(payload)
     try:
         validated = validate_template_payload(
             payload,
@@ -634,14 +648,17 @@ def create_template_version(template_id):
             raise TemplateStateError("deleted template cannot be edited")
         if template["current_version_id"] != base_version_id:
             raise TemplateStateError("template has been updated; reload before saving")
-        before_schema = normalize_db_template_schema(parse_json_value(template["current_schema_json"]))
-        before_copy_format = parse_json_value(template["current_copy_format_json"])
-        high_risk_changes = detect_high_risk_changes(
-            before_schema,
-            validated["schema"],
-            before_copy_format,
-            validated["copy_format"],
-        )
+        before_schema = None
+        before_copy_format = None
+        if template["current_schema_json"] is not None:
+            before_schema = normalize_db_template_schema(parse_json_value(template["current_schema_json"]))
+            before_copy_format = parse_json_value(template["current_copy_format_json"])
+            high_risk_changes = detect_high_risk_changes(
+                before_schema,
+                validated["schema"],
+                before_copy_format,
+                validated["copy_format"],
+            )
 
         version_number = conn.execute(
             """
@@ -678,7 +695,7 @@ def create_template_version(template_id):
             timestamp,
             validated["change_reason"],
             before={
-                "schema": parse_json_value(template["current_schema_json"]),
+                "schema": before_schema,
                 "copy_format": parse_json_value(template["current_copy_format_json"]),
             },
             after={
@@ -728,14 +745,18 @@ def publish_template_version(template_id, version_id):
             raise TemplateStateError("draft was created from an outdated published version")
 
         target_schema, target_copy_format = validate_version_definition(target)
-        before_schema = normalize_db_template_schema(parse_json_value(template["current_schema_json"]))
-        before_copy_format = parse_json_value(template["current_copy_format_json"])
-        high_risk_changes = detect_high_risk_changes(
-            before_schema,
-            target_schema,
-            before_copy_format,
-            target_copy_format,
-        )
+        before_schema = None
+        before_copy_format = None
+        high_risk_changes = []
+        if template["current_schema_json"] is not None:
+            before_schema = normalize_db_template_schema(parse_json_value(template["current_schema_json"]))
+            before_copy_format = parse_json_value(template["current_copy_format_json"])
+            high_risk_changes = detect_high_risk_changes(
+                before_schema,
+                target_schema,
+                before_copy_format,
+                target_copy_format,
+            )
         if high_risk_changes and payload.get("confirm_high_risk") is not True:
             conn.rollback()
             return jsonify(
@@ -1020,7 +1041,7 @@ def get_template(template_id):
               v.copy_format_json AS copy_format_json
             FROM templates t
             LEFT JOIN template_versions v ON v.id = t.current_version_id
-            WHERE t.id = ? AND t.is_active = 1
+            WHERE t.id = ? AND t.is_active = 1 AND t.current_version_id IS NOT NULL
             """,
             (template_id,),
         ).fetchone()
@@ -1210,7 +1231,7 @@ def get_template_group(group_id):
             FROM template_group_items gi
             JOIN templates t ON t.id = gi.template_id
             LEFT JOIN template_versions v ON v.id = t.current_version_id
-            WHERE gi.group_id = ? AND t.is_active = 1
+            WHERE gi.group_id = ? AND t.is_active = 1 AND t.current_version_id IS NOT NULL
             ORDER BY gi.display_order, t.display_order, t.label
             """,
             (group_id,),

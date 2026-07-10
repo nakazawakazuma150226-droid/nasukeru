@@ -580,11 +580,24 @@ def run_write_tests(failures):
                     and any(
                         field["id"] == "antihypertensive_other"
                         and field["label"] == "降圧薬その他"
+                        and field.get("requiredIf") == {
+                            "op": "contains",
+                            "field": "treatment.antihypertensive",
+                            "value": "その他",
+                        }
                         for field in section["fields"]
                     )
                     for section in item["schema"]["sections"]
                 )
-                and item["copy_format"]["format"] == "text-v1",
+                and item["copy_format"]["format"] == "text-v1"
+                and any(
+                    isinstance(line, dict)
+                    and line.get("prefix") == "降圧薬："
+                    and line.get("segments", [{}])[0].get("replaceItems") == [
+                        {"value": "その他", "ref": "treatment.antihypertensive_other"}
+                    ]
+                    for line in item["copy_format"]["lines"]
+                ),
                 "GET /api/templates/neuro_common returns common generic schema",
                 failures,
             )
@@ -632,8 +645,8 @@ def run_write_tests(failures):
             )
             assert_json_contains(
                 client.get("/api/migrations"),
-                lambda items: all(version in [item["version"] for item in items] for version in ["010", "011", "012", "013"]),
-                "GET /api/migrations records integrated 010/011, chronic subdural 012, and reconcile 013 migrations",
+                lambda items: all(version in [item["version"] for item in items] for version in ["010", "011", "012", "013", "014"]),
+                "GET /api/migrations records integrated 010/011, chronic subdural 012, reconcile 013, and copy refinement 014",
                 failures,
             )
             assert_json_contains(
@@ -1991,6 +2004,55 @@ def run_write_tests(failures):
                 client.post("/api/templates", json=invalid_copy_split_payload, headers=LOCAL_HEADERS),
                 400,
                 "POST /api/templates generic-v1 invalid copy_format split ref",
+                failures,
+            )
+
+            invalid_replace_source_payload = {
+                **generic_payload,
+                "id": "bad_replace_source",
+                "copy_format": {
+                    "format": "text-v1",
+                    "lines": [
+                        {
+                            "segments": [
+                                {
+                                    "ref": "basic.status",
+                                    "replaceItems": [{"value": "present", "ref": "basic.procedure"}],
+                                }
+                            ]
+                        }
+                    ],
+                },
+            }
+            assert_status(
+                client.post("/api/templates", json=invalid_replace_source_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates replaceItems requires multi_select source",
+                failures,
+            )
+
+            invalid_replace_value_payload = {
+                **generic_payload,
+                "id": "bad_replace_value",
+                "schema": copy.deepcopy(EXTENDED_GENERIC_SCHEMA),
+                "copy_format": {
+                    "format": "text-v1",
+                    "lines": [
+                        {
+                            "segments": [
+                                {
+                                    "ref": "observe.symptoms",
+                                    "replaceItems": [{"value": "other", "ref": "observe.drainage"}],
+                                }
+                            ]
+                        }
+                    ],
+                },
+            }
+            assert_status(
+                client.post("/api/templates", json=invalid_replace_value_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates replaceItems rejects unknown option value",
                 failures,
             )
             assert_stroke_copy_output(client, failures)

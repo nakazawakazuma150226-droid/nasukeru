@@ -33,6 +33,9 @@
     if (line && typeof line === "object") {
       (line.segments || []).forEach(function(segment) {
         if (segment.ref && refs.indexOf(segment.ref) < 0) refs.push(segment.ref);
+        (segment.replaceItems || []).forEach(function(replacement) {
+          if (replacement.ref && refs.indexOf(replacement.ref) < 0) refs.push(replacement.ref);
+        });
       });
       if (line.splitLinesFrom && refs.indexOf(line.splitLinesFrom) < 0) refs.push(line.splitLinesFrom);
     }
@@ -55,12 +58,21 @@
     });
   }
 
-  function collectRenderedSegmentRefs(line, values) {
+  function collectRenderedSegmentRefs(line, values, conditionValues) {
     var refs = [];
     (line.segments || []).forEach(function(segment) {
       if (!blank.isBlank(values[segment.ref]) && refs.indexOf(segment.ref) < 0) refs.push(segment.ref);
+      var actual = conditionValues && conditionValues[segment.ref];
+      if (!Array.isArray(actual)) return;
+      (segment.replaceItems || []).forEach(function(replacement) {
+        if (actual.indexOf(replacement.value) >= 0 && refs.indexOf(replacement.ref) < 0) refs.push(replacement.ref);
+      });
     });
     return refs;
+  }
+
+  function displayValue(value) {
+    return Array.isArray(value) ? value.join("、") : value;
   }
 
   function valueFor(values, ref, unresolvedRefs) {
@@ -69,7 +81,7 @@
       if (unresolvedRefs && unresolvedRefs.indexOf(ref) < 0) unresolvedRefs.push(ref);
       return "__";
     }
-    return value;
+    return displayValue(value);
   }
 
   function renderCopyLine(text, values, overrideRef, overrideValue, unresolvedRefs) {
@@ -80,12 +92,26 @@
     });
   }
 
-  function renderSegments(line, values) {
+  function renderSegmentValue(segment, values, conditionValues, unresolvedRefs) {
+    var value = values[segment.ref];
+    if (blank.isBlank(value)) return null;
+    if (!Array.isArray(segment.replaceItems) || !segment.replaceItems.length) return displayValue(value);
+    var actualItems = conditionValues && conditionValues[segment.ref];
+    if (!Array.isArray(actualItems)) return displayValue(value);
+    var displayItems = Array.isArray(value) ? value : actualItems;
+    return actualItems.map(function(actual, index) {
+      var replacement = segment.replaceItems.find(function(item) { return item.value === actual; });
+      if (replacement) return valueFor(values, replacement.ref, unresolvedRefs);
+      return displayItems[index] === undefined ? actual : displayItems[index];
+    }).join("、");
+  }
+
+  function renderSegments(line, values, conditionValues, unresolvedRefs) {
     if (!line || !Array.isArray(line.segments)) return null;
     var parts = [];
     line.segments.forEach(function(segment) {
-      var value = values[segment.ref];
-      if (blank.isBlank(value)) return;
+      var value = renderSegmentValue(segment, values, conditionValues, unresolvedRefs);
+      if (value === null) return;
       parts.push(String(segment.label || "") + String(value) + String(segment.suffix || ""));
     });
     if (!parts.length) return null;
@@ -136,10 +162,10 @@
         return;
       }
       if (Array.isArray(line.segments)) {
-        var segmentLine = renderSegments(line, values);
+        var segmentLine = renderSegments(line, values, conditionValues || values, unresolvedRefs);
         if (segmentLine) {
           lines.push(segmentLine);
-          appendUniqueRefs(outputRefs, collectRenderedSegmentRefs(line, values));
+          appendUniqueRefs(outputRefs, collectRenderedSegmentRefs(line, values, conditionValues || values));
         }
         return;
       }

@@ -198,6 +198,7 @@ SQLite DB
 - `copy_format_json` が無い場合は暫定の汎用形式で出力する
 - `text-v1` は `lines` 配列と `{{section.field}}` 参照をサポートする
 - `text-v1` の各行は文字列、または `{ "text": "...", "omitIfAllBlank": ["section.field"], "splitLinesFrom": "section.field" }` の行オブジェクトで定義できる
+- `segments[].replaceItems` で、`multi_select` の特定選択肢を別fieldの入力値へ置換できる。たとえば「その他」を自由記載の薬剤名へ置き換え、1行にまとめて出力する
 - `omitIfAllBlank` は指定した入力がすべて空欄のとき、その行をコピー出力から省略する
 - `splitLinesFrom` は指定した入力を改行で分割し、空行を除いて複数行として出力する
 - `copy_format` の参照先は `generic-v1` / `generic-v2` schema に存在する field のみ許可する
@@ -212,6 +213,7 @@ SQLite DB
 - より高度な医療安全ルールは次フェーズ以降で拡張する
 - 管理画面の新規追加は `generic-v1` / `generic-v2` を選択可能とし、`stroke-v1` は旧バージョン・後方互換用として残す
 - 管理画面ではTemplate Builderでセクション、項目、選択肢、単純条件、コピー出力行を編集できる
+- Simple Editorの項目カードは、閉じた状態でも右端の削除ボタンから項目を削除できる
 - ネスト条件や高度なcopy_formatはDeveloper Mode / JSONで編集する
 - 通常画面のクイックリストと検索は `target` で明示的に `template` または `group` を開く
 - 脳梗塞5テンプレートは `cerebral_infarction` groupとして表示し、group内タブは既存generic rendererを再利用する

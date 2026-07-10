@@ -218,7 +218,7 @@
     container.querySelectorAll(".generic-input").forEach(function(input) {
       var row = input.closest(".nrow");
       if (row && row.hidden) return;
-      values[genericValues.fieldRef(input)] = genericValues.formatInputValueForCopy(input, genericValues.parseInputValue(input));
+      values[genericValues.fieldRef(input)] = genericValues.formatInputValueForRenderer(input, genericValues.parseInputValue(input));
     });
     return values;
   }

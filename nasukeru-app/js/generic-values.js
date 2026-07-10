@@ -68,6 +68,16 @@
     return String(value);
   }
 
+  function formatInputValueForRenderer(input, value) {
+    if (blank.isBlank(value)) return "";
+    if (input.dataset.fieldType === "multi_select") {
+      return splitMultiValue(value).map(function(item) {
+        return optionLabel(input, item);
+      });
+    }
+    return formatInputValueForCopy(input, value);
+  }
+
   function applyInputValue(input, value) {
     if (input.dataset.fieldType === "multi_select") {
       var selected = splitMultiValue(value);
@@ -106,6 +116,7 @@
     collectTypedValues: collectTypedValues,
     fieldRef: fieldRef,
     formatInputValueForCopy: formatInputValueForCopy,
+    formatInputValueForRenderer: formatInputValueForRenderer,
     isBlankValue: blank.isBlank,
     parseInputValue: parseInputValue,
     normalizeNumberField: normalizeNumberField,

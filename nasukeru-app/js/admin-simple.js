@@ -430,6 +430,7 @@
     }
 
     function renderField(sectionModel, field, fieldIndex) {
+      var shell = el("div", "simple-field-shell");
       var details = document.createElement("details");
       details.className = "simple-field-card";
       var summary = document.createElement("summary");
@@ -493,15 +494,18 @@
         });
         actions.appendChild(btn);
       });
-      var remove = el("button", "btn bg admin-row-btn danger", "削除");
-      remove.type = "button";
-      remove.addEventListener("click", function() {
+      details.appendChild(actions);
+
+      var quickRemove = el("button", "btn bg admin-row-btn danger simple-field-quick-delete", "削除");
+      quickRemove.type = "button";
+      quickRemove.setAttribute("aria-label", (field.label || "項目") + "を削除");
+      quickRemove.addEventListener("click", function() {
         sectionModel.fields.splice(fieldIndex, 1);
         refresh();
       });
-      actions.appendChild(remove);
-      details.appendChild(actions);
-      return details;
+      shell.appendChild(details);
+      shell.appendChild(quickRemove);
+      return shell;
     }
 
     function renderOptions(field) {

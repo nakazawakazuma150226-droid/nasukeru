@@ -58,4 +58,11 @@ test("formats select and multi_select values with labels for copy", () => {
     ),
     "頭痛、嘔気"
   );
+  assert.deepEqual(
+    values.formatInputValueForRenderer(
+      input("multi_select", "headache、nausea", { headache: "頭痛", nausea: "嘔気" }),
+      ["headache", "nausea"]
+    ),
+    ["頭痛", "嘔気"]
+  );
 });

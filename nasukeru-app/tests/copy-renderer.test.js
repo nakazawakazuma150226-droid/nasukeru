@@ -120,37 +120,55 @@ test("uses showIf with condition values", () => {
   assert.deepEqual(suppressed.suppressedRefs, ["vitals.oxygen_flow"]);
 });
 
-test("optional conditional field stays on its own line instead of concatenating onto another value", () => {
-  // Regression test: a blank optional field must never be concatenated directly
-  // after another field's placeholder in the same text-line, since a blank value
-  // renders as a bare "__" with no label, which reads as a garbled attachment to
-  // whatever value precedes it (e.g. "ニカルジピン__" instead of a clearly labeled
-  // separate line).
+test("replaces an other choice with its entered value in one output line", () => {
   const copyFormat = {
     format: "text-v1",
     lines: [
-      "降圧薬：{{treatment.antihypertensive}}、ニカルジピン速度：{{treatment.nicardipine_rate}}ml/h。",
       {
-        text: "降圧薬その他：{{treatment.antihypertensive_other}}。",
-        showIf: { op: "contains", field: "treatment.antihypertensive", value: "その他" },
+        segments: [{
+          ref: "treatment.antihypertensive",
+          replaceItems: [{ value: "その他", ref: "treatment.antihypertensive_other" }],
+        }],
+        prefix: "降圧薬：",
+      },
+      {
+        text: "ニカルジピン速度：{{treatment.nicardipine_rate}}ml/h",
+        showIf: { op: "contains", field: "treatment.antihypertensive", value: "ニカルジピン" },
       },
     ],
   };
   const noOtherValues = {
-    "treatment.antihypertensive": "ニカルジピン",
+    "treatment.antihypertensive": ["ニカルジピン"],
     "treatment.nicardipine_rate": "5",
   };
   const noOtherResult = renderer.renderGenericTemplateCopyResult(copyFormat, noOtherValues, noOtherValues);
-  assert.equal(noOtherResult.text, "降圧薬：ニカルジピン、ニカルジピン速度：5ml/h。");
-  assert.ok(!noOtherResult.text.includes("__"));
+  assert.equal(noOtherResult.text, "降圧薬：ニカルジピン\nニカルジピン速度：5ml/h");
 
   const withOtherValues = {
-    "treatment.antihypertensive": "その他",
+    "treatment.antihypertensive": ["その他"],
     "treatment.antihypertensive_other": "ワーファリン",
-    "treatment.nicardipine_rate": "",
   };
   const withOtherResult = renderer.renderGenericTemplateCopyResult(copyFormat, withOtherValues, withOtherValues);
-  assert.equal(withOtherResult.text, "降圧薬：その他、ニカルジピン速度：__ml/h。\n降圧薬その他：ワーファリン。");
+  assert.equal(withOtherResult.text, "降圧薬：ワーファリン");
+  assert.deepEqual(withOtherResult.outputRefs, ["treatment.antihypertensive", "treatment.antihypertensive_other"]);
+
+  const mixedValues = {
+    "treatment.antihypertensive": ["ニカルジピン", "その他"],
+    "treatment.antihypertensive_other": "ワーファリン",
+    "treatment.nicardipine_rate": "5",
+  };
+  assert.equal(
+    renderer.renderGenericTemplateCopyText(copyFormat, mixedValues, mixedValues),
+    "降圧薬：ニカルジピン、ワーファリン\nニカルジピン速度：5ml/h"
+  );
+
+  const missingOther = renderer.renderGenericTemplateCopyResult(
+    copyFormat,
+    { "treatment.antihypertensive": ["その他"], "treatment.antihypertensive_other": "" },
+    { "treatment.antihypertensive": ["その他"], "treatment.antihypertensive_other": "" }
+  );
+  assert.equal(missingOther.text, "降圧薬：__");
+  assert.deepEqual(missingOther.unresolvedRefs, ["treatment.antihypertensive_other"]);
 });
 
 test("returns structured render result with unresolved refs", () => {

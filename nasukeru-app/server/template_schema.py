@@ -639,12 +639,28 @@ def validate_copy_line_segments(segments, field):
     for index, segment in enumerate(segments):
         segment_field = f"{field}[{index}]"
         require_object(segment, segment_field)
-        reject_unknown_keys(segment, ("ref", "label", "suffix"), segment_field)
+        reject_unknown_keys(segment, ("ref", "label", "suffix", "replaceItems"), segment_field)
         ref = require_text(segment.get("ref"), f"{segment_field}.ref")
         if not COPY_REF_PATTERN.fullmatch(ref):
             raise SchemaValidationError(f"{segment_field}.ref must match section.field")
         require_optional_string(segment, "label", segment_field)
         require_optional_string(segment, "suffix", segment_field)
+        if "replaceItems" in segment:
+            replacements = segment["replaceItems"]
+            if not isinstance(replacements, list) or not replacements:
+                raise SchemaValidationError(f"{segment_field}.replaceItems must be a non-empty array")
+            seen_values = set()
+            for replacement_index, replacement in enumerate(replacements):
+                replacement_field = f"{segment_field}.replaceItems[{replacement_index}]"
+                require_object(replacement, replacement_field)
+                reject_unknown_keys(replacement, ("value", "ref"), replacement_field)
+                replacement_value = require_text(replacement.get("value"), f"{replacement_field}.value")
+                if replacement_value in seen_values:
+                    raise SchemaValidationError(f"{replacement_field}.value is duplicated: {replacement_value}")
+                seen_values.add(replacement_value)
+                replacement_ref = require_text(replacement.get("ref"), f"{replacement_field}.ref")
+                if not COPY_REF_PATTERN.fullmatch(replacement_ref):
+                    raise SchemaValidationError(f"{replacement_field}.ref must match section.field")
 
 
 def normalize_copy_format(copy_format):
@@ -674,9 +690,30 @@ def normalize_copy_lines(lines):
         if isinstance(line, str):
             normalized_lines.append(line)
         else:
+            normalized_line = dict(line)
+            if "segments" in normalized_line:
+                normalized_line["segments"] = [
+                    ordered_with_known_keys(
+                        {
+                            **segment,
+                            **(
+                                {
+                                    "replaceItems": [
+                                        ordered_with_known_keys(replacement, ("value", "ref"))
+                                        for replacement in segment.get("replaceItems", [])
+                                    ]
+                                }
+                                if "replaceItems" in segment
+                                else {}
+                            ),
+                        },
+                        ("ref", "label", "suffix", "replaceItems"),
+                    )
+                    for segment in normalized_line["segments"]
+                ]
             normalized_lines.append(
                 ordered_with_known_keys(
-                    line,
+                    normalized_line,
                     ("text", "segments", "prefix", "separator", "splitLinesFrom", "omitIfAllBlank", "showIf"),
                 )
             )
@@ -716,6 +753,8 @@ def iter_copy_line_output_refs(line):
     if isinstance(line, dict):
         for segment in line.get("segments", []):
             yield segment["ref"]
+            for replacement in segment.get("replaceItems", []):
+                yield replacement["ref"]
         split_ref = line.get("splitLinesFrom")
         if split_ref:
             yield split_ref
@@ -859,6 +898,24 @@ def validate_copy_format_references(schema, copy_format):
                 if schema_format(schema) != SCHEMA_FORMAT_GENERIC_V2:
                     raise SchemaValidationError(f"{location}.showIf requires generic-v2")
                 validate_condition(line["showIf"], field_refs, f"{location}.showIf")
+            if isinstance(line, dict):
+                for segment_index, segment in enumerate(line.get("segments", [])):
+                    if "replaceItems" not in segment:
+                        continue
+                    source = field_refs.get(segment["ref"])
+                    if source is None:
+                        continue
+                    if source.get("type") != "multi_select":
+                        raise SchemaValidationError(
+                            f"{location}.segments[{segment_index}].replaceItems requires a multi_select source field"
+                        )
+                    allowed_values = {option_value(option) for option in source.get("options", [])}
+                    for replacement_index, replacement in enumerate(segment["replaceItems"]):
+                        if replacement["value"] not in allowed_values:
+                            raise SchemaValidationError(
+                                f"{location}.segments[{segment_index}].replaceItems[{replacement_index}].value "
+                                f"references unknown option value: {replacement['value']}"
+                            )
             for ref in iter_copy_line_refs(line):
                 if ref not in allowed_refs:
                     unknown_refs.append(ref)

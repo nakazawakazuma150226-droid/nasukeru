@@ -1,5 +1,24 @@
 # ナスケル 段階実装進捗
 
+## Template UI / Derived Copy Refinement
+
+Status: PASS
+
+Implemented:
+
+- Simple Editorの閉じた項目カード右端から項目を削除できるUIへ変更
+- `segments[].replaceItems` を追加し、`multi_select` の特定選択肢を別fieldの入力値へ置換可能にした
+- 脳卒中共通の降圧薬「その他」を自由記載の薬剤名へ置き換え、単一行でコピー出力
+- 「その他」選択時の自由記載を `requiredIf` によりコピー前警告対象へ変更
+- migration `014` で既存DBの脳卒中共通テンプレートを新しい出力へ更新
+
+Tests:
+
+- Python compile PASS
+- JS syntax / unit tests PASS
+- API / migration smoke test PASS
+- Browser verification PASS
+
 ## Roadmap Update: Authoring / Content / Cleanup / Derived Output
 
 Status: PASS

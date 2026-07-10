@@ -105,7 +105,10 @@ function collectGenericValues() {
   currentCopyCard.querySelectorAll(".generic-input").forEach(function(input) {
     var row = input.closest(".nrow");
     if (row && row.hidden) return;
-    values[input.dataset.sectionId + "." + input.dataset.fieldId] = genericInputValueForCopy(input);
+    values[input.dataset.sectionId + "." + input.dataset.fieldId] = NasukeruGenericValues.formatInputValueForRenderer(
+      input,
+      NasukeruGenericValues.parseInputValue(input)
+    );
   });
   return values;
 }

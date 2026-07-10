@@ -505,6 +505,7 @@ def build_neuro_common_schema():
                     "antihypertensive_other", "降圧薬その他", "text",
                     placeholder="薬剤名を入力",
                     visibleIf=antihypertensive_contains("その他"),
+                    requiredIf=antihypertensive_contains("その他"),
                 ),
                 generic_field("other", "治療メモ", "textarea"),
             ],
@@ -614,9 +615,19 @@ def build_neuro_common_copy_format():
                     ],
                     "separator": "、",
                 },
-                {"text": "降圧薬：{{treatment.antihypertensive}}", "omitIfAllBlank": ["treatment.antihypertensive"]},
+                {
+                    "segments": [
+                        {
+                            "ref": "treatment.antihypertensive",
+                            "replaceItems": [
+                                {"value": "その他", "ref": "treatment.antihypertensive_other"},
+                            ],
+                        },
+                    ],
+                    "prefix": "降圧薬：",
+                    "omitIfAllBlank": ["treatment.antihypertensive"],
+                },
                 {"text": "ニカルジピン速度：{{treatment.nicardipine_rate}}ml/h", "showIf": antihypertensive_contains("ニカルジピン")},
-                {"text": "降圧薬その他：{{treatment.antihypertensive_other}}。", "showIf": antihypertensive_contains("その他")},
                 {"text": "{{treatment.other}}", "splitLinesFrom": "treatment.other", "omitIfAllBlank": ["treatment.other"]},
             ],
         }
@@ -1306,6 +1317,22 @@ def migrate_reconcile_integrated_template_definitions(conn, now):
         "013",
     )
     record_migration(conn, "013", "reconcile built-in template definitions", now)
+
+
+def migrate_refine_neuro_common_copy_output(conn, now):
+    if migration_applied(conn, "014"):
+        return
+    publish_system_version_if_changed(
+        conn,
+        NEURO_COMMON_TEMPLATE["id"],
+        build_neuro_common_schema(),
+        build_neuro_common_copy_format(),
+        "Refine antihypertensive copy output",
+        "Replace the その他 choice with its entered medication name in a single output line",
+        now,
+        "014",
+    )
+    record_migration(conn, "014", "refine neuro common antihypertensive copy output", now)
 
 
 def migrate_stroke_templates_to_generic(conn, now):
@@ -2046,6 +2073,7 @@ def main():
         migrate_integrated_template_fixes(conn, now)
         migrate_add_chronic_subdural_template(conn, now)
         migrate_reconcile_integrated_template_definitions(conn, now)
+        migrate_refine_neuro_common_copy_output(conn, now)
         normalize_template_version_statuses(conn)
         seed_template_groups(conn, now)
         seed_rest_options(conn)

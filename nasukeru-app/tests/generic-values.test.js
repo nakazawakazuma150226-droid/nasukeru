@@ -39,6 +39,13 @@ test("parses multi_select as an array", () => {
   assert.deepEqual(parsed, ["headache", "nausea"]);
 });
 
+test("multi_select preserves an option value containing the display delimiter", () => {
+  const field = input("multi_select", "a、b");
+  field.closest = () => null;
+  values.applyInputValue(field, ["a、b"]);
+  assert.deepEqual(values.parseInputValue(field), ["a、b"]);
+});
+
 test("formats select and multi_select values with labels for copy", () => {
   assert.equal(
     values.formatInputValueForCopy(input("select", "oxygen", { oxygen: "O2使用" }), "oxygen"),

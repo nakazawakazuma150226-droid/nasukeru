@@ -27,6 +27,8 @@
 - schema / copy_format の未知キーは400で拒否する
 - `copy_format` の参照は `generic-v1` / `generic-v2` schema に存在するfieldだけ許可する
 - `copy_format` の未参照フィールドは警告する。`omitIfAllBlank` や `showIf` は制御参照であり、値が出力されないため未参照判定では出力参照に含めない
+- `showIf` が偽になり、入力済みfieldを含むコピー行が除外された場合はコピー前警告を表示する
+- schemaの数値メタデータは真偽値を数値として受理しない。`hardRange` などの安全制約がブラウザ側で無効化される型ずれをサーバーで拒否する
 - 原則は警告してコピー可能。`blankPolicy=block` や `hardRange` 逸脱など明示された安全ルールだけコピーを止める
 - テンプレート編集はバージョン追加で行い、既存バージョンを上書きしない
 - 編集保存時は `draft` versionを作成し、履歴画面から公開すると通常画面に反映する

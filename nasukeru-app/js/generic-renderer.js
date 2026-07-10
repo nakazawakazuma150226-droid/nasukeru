@@ -107,6 +107,7 @@
           group.querySelectorAll("input[type='checkbox']:checked").forEach(function(checked) {
             values.push(checked.value);
           });
+          input.genericMultiValues = values.slice();
           input.value = values.join("、");
           input.dispatchEvent(new Event("change", { bubbles: true }));
         });

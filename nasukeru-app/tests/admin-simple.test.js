@@ -19,6 +19,26 @@ test("blank editor model compiles to generic-v2 without exposing IDs", () => {
   assert.match(schema.sections[0].fields[0].id, /^fld_/);
 });
 
+test("UI-only copy flags are not emitted into schema", () => {
+  const editor = model.blankEditorModel();
+  model.addField(editor.sections[0]);
+  editor.sections[0].fields[0].includeInCopy = false;
+  const schema = model.editorModelToSchema(editor);
+  assert.equal("includeInCopy" in schema.sections[0].fields[0], false);
+  assert.equal("includeInCopy" in schema.sections[0].fields[1], false);
+  assert.equal(model.editorModelToCopyFormat(editor).lines.some((line) => JSON.stringify(line).includes(schema.sections[0].fields[0].id)), false);
+});
+
+test("section help text survives simple editor round-trip", () => {
+  const editor = model.schemaToEditorModel({
+    schema: {
+      schemaFormat: "generic-v2",
+      sections: [{ id: "status", label: "状態", helpText: "観察時点を確認", fields: [] }],
+    },
+  });
+  assert.equal(model.editorModelToSchema(editor).sections[0].helpText, "観察時点を確認");
+});
+
 test("option value is preserved when label changes", () => {
   const editor = model.schemaToEditorModel({
     schema: {

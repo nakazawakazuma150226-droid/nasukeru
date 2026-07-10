@@ -193,7 +193,7 @@ SQLite DB
 - 通常入力画面は `stroke-v1` を従来タブUI、`generic-v1` を section/field ベースの動的UIとして表示する
 - `generic-v1` の入力初期値は安全側で空欄にする
 - 通常画面のgeneric入力値は `js/generic-values.js` を通して型付き状態に変換する
-- `number` の空欄は `null`、`0` は有効値、`multi_select` は配列として扱う
+- `number` の空欄は `null`、`0` は有効値、`multi_select` は区切り文字に依存しない配列として扱う
 - `generic-v1` のコピー出力は `copy_format_json` の `text-v1` 形式を優先する
 - `copy_format_json` が無い場合は暫定の汎用形式で出力する
 - `text-v1` は `lines` 配列と `{{section.field}}` 参照をサポートする
@@ -203,10 +203,11 @@ SQLite DB
 - `copy_format` の参照先は `generic-v1` / `generic-v2` schema に存在する field のみ許可する
 - `generic-v2` の条件式は `eq` / `neq` / `in` / `not_in` / `contains` / `gt` / `gte` / `lt` / `lte` / `is_blank` / `and` / `or` / `not` をサポートする
 - `visibleIf` はfield表示、`requiredIf` は未入力警告、copy line の `showIf` はコピー出力行の表示条件に使う
+- `showIf` により入力済みfieldを含む行が除外された場合は、コピー前に無言で欠落させず警告する
 - 非表示になったfieldの値はclearし、hidden値がcopyや未入力警告に漏れないようにする
 - `blankPolicy` は `allow` / `warn` / `block` をサポートする。`block` はコピー不可、`warn` は確認後コピー可能
 - `hardRange` は入力仕様上の範囲外としてblock、`warningRange` は確認対象としてwarnにする
-- `copy-renderer` は `{ text, unresolvedRefs, warnings }` の構造化結果も返せる
+- `copy-renderer` は `{ text, unresolvedRefs, outputRefs, suppressedRefs, warnings }` の構造化結果も返せる
 - テンプレート更新時はfield削除、`blankPolicy`緩和、condition変更、hardRange緩和、copy行削除を高リスク変更としてレスポンスと監査ログに残す
 - より高度な医療安全ルールは次フェーズ以降で拡張する
 - 管理画面の新規追加は `generic-v1` / `generic-v2` を選択可能とし、`stroke-v1` は旧バージョン・後方互換用として残す

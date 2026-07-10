@@ -66,6 +66,7 @@
           id: section.id || randomId("sec"),
           label: section.label || "セクション",
           displayOrder: typeof section.displayOrder === "number" ? section.displayOrder : sectionIndex + 1,
+          helpText: section.helpText || "",
           visibleIf: clone(section.visibleIf) || null,
           fields: (section.fields || []).map(fieldToModel),
           copyStyle: inferSectionCopyStyle(section, template.copy_format),
@@ -134,12 +135,11 @@
             next.label = next.label || "項目";
             next.type = next.type || "text";
             next.displayOrder = fieldIndex + 1;
+            delete next.includeInCopy;
             delete next.requiredWarning;
             if (next.blankPolicy === "allow") {
               next.blankPolicy = "allow";
-            } else if (next.blankPolicy === "warn" || next.blankPolicy === "block") {
-              next.blankPolicy = next.blankPolicy;
-            } else {
+            } else if (next.blankPolicy !== "warn" && next.blankPolicy !== "block") {
               delete next.blankPolicy;
             }
             if (next.type === "select" || next.type === "multi_select") {
@@ -162,6 +162,7 @@
             return next;
           }),
         };
+        if (section.helpText) nextSection.helpText = section.helpText;
         if (section.visibleIf) nextSection.visibleIf = clone(section.visibleIf);
         return nextSection;
       }),

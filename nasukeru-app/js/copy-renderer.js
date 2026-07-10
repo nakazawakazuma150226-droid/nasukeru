@@ -49,6 +49,20 @@
     return refs;
   }
 
+  function appendUniqueRefs(target, refs) {
+    (refs || []).forEach(function(ref) {
+      if (target.indexOf(ref) < 0) target.push(ref);
+    });
+  }
+
+  function collectRenderedSegmentRefs(line, values) {
+    var refs = [];
+    (line.segments || []).forEach(function(segment) {
+      if (!blank.isBlank(values[segment.ref]) && refs.indexOf(segment.ref) < 0) refs.push(segment.ref);
+    });
+    return refs;
+  }
+
   function valueFor(values, ref, unresolvedRefs) {
     var value = values[ref];
     if (blank.isBlank(value)) {
@@ -101,30 +115,44 @@
     var variant = selectedCopyVariant(copyFormat, variantId);
     var lines = [];
     var unresolvedRefs = [];
+    var outputRefs = [];
+    var suppressedRefs = [];
     if (!variant) {
-      return { text: "", unresolvedRefs: [], warnings: [], variant: null, outputRefs: [] };
+      return { text: "", unresolvedRefs: [], warnings: [], variant: null, outputRefs: [], suppressedRefs: [] };
     }
     variant.lines.forEach(function(line) {
       if (typeof line === "string") {
         lines.push(renderCopyLine(line, values, null, null, unresolvedRefs));
+        appendUniqueRefs(outputRefs, collectCopyLineOutputRefs(line));
         return;
       }
-      if (line.showIf && conditionEngine && !conditionEngine.evaluateCondition(line.showIf, conditionValues || values)) return;
+      if (line.showIf && conditionEngine && !conditionEngine.evaluateCondition(line.showIf, conditionValues || values)) {
+        appendUniqueRefs(suppressedRefs, collectCopyLineOutputRefs(line));
+        return;
+      }
       if (shouldOmitCopyLine(line, values)) return;
-      if (appendSplitCopyLines(lines, line, values, unresolvedRefs)) return;
+      if (appendSplitCopyLines(lines, line, values, unresolvedRefs)) {
+        if (!blank.isBlank(values[line.splitLinesFrom])) appendUniqueRefs(outputRefs, [line.splitLinesFrom]);
+        return;
+      }
       if (Array.isArray(line.segments)) {
         var segmentLine = renderSegments(line, values);
-        if (segmentLine) lines.push(segmentLine);
+        if (segmentLine) {
+          lines.push(segmentLine);
+          appendUniqueRefs(outputRefs, collectRenderedSegmentRefs(line, values));
+        }
         return;
       }
       lines.push(renderCopyLine(line.text || "", values, null, null, unresolvedRefs));
+      appendUniqueRefs(outputRefs, collectCopyLineOutputRefs(line));
     });
     return {
       text: lines.join("\n"),
       unresolvedRefs: unresolvedRefs,
       warnings: [],
       variant: { id: variant.id, label: variant.label },
-      outputRefs: collectVariantOutputRefs(copyFormat, variant.id),
+      outputRefs: outputRefs,
+      suppressedRefs: suppressedRefs,
     };
   }
 

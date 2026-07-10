@@ -88,7 +88,7 @@ def require_optional_bool(obj, key, field):
 
 
 def require_optional_number(obj, key, field):
-    if key in obj and not isinstance(obj[key], (int, float)):
+    if key in obj and (isinstance(obj[key], bool) or not isinstance(obj[key], (int, float))):
         raise SchemaValidationError(f"{field}.{key} must be a number")
 
 

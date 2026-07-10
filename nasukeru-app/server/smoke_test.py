@@ -1860,6 +1860,16 @@ def run_write_tests(failures):
                 failures,
             )
 
+            boolean_range_payload = copy.deepcopy(generic_v2_payload)
+            boolean_range_payload["id"] = "bad_boolean_range"
+            boolean_range_payload["schema"]["sections"][0]["fields"][1]["hardRange"] = {"min": True}
+            assert_status(
+                client.post("/api/templates", json=boolean_range_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v2 rejects boolean hardRange",
+                failures,
+            )
+
             invalid_number_payload = copy.deepcopy(generic_payload)
             invalid_number_payload["id"] = "bad_number"
             invalid_number_payload["schema"] = copy.deepcopy(EXTENDED_GENERIC_SCHEMA)
@@ -1868,6 +1878,17 @@ def run_write_tests(failures):
                 client.post("/api/templates", json=invalid_number_payload, headers=LOCAL_HEADERS),
                 400,
                 "POST /api/templates generic-v1 invalid number step",
+                failures,
+            )
+
+            boolean_number_payload = copy.deepcopy(generic_payload)
+            boolean_number_payload["id"] = "bad_boolean_number"
+            boolean_number_payload["schema"] = copy.deepcopy(EXTENDED_GENERIC_SCHEMA)
+            boolean_number_payload["schema"]["sections"][0]["fields"][1]["step"] = True
+            assert_status(
+                client.post("/api/templates", json=boolean_number_payload, headers=LOCAL_HEADERS),
+                400,
+                "POST /api/templates generic-v1 rejects boolean number metadata",
                 failures,
             )
 

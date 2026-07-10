@@ -111,6 +111,13 @@ test("uses showIf with condition values", () => {
     renderer.renderGenericTemplateCopyText(copyFormat, displayValues, { "vitals.oxygen_use": "room_air" }),
     "Status: stable"
   );
+  const suppressed = renderer.renderGenericTemplateCopyResult(
+    copyFormat,
+    displayValues,
+    { "vitals.oxygen_use": "room_air" }
+  );
+  assert.deepEqual(suppressed.outputRefs, ["vitals.status"]);
+  assert.deepEqual(suppressed.suppressedRefs, ["vitals.oxygen_flow"]);
 });
 
 test("optional conditional field stays on its own line instead of concatenating onto another value", () => {

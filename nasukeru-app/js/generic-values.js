@@ -21,6 +21,7 @@
     var fieldType = input.dataset.fieldType || "text";
     var raw = input.value || "";
     if (fieldType === "multi_select") {
+      if (Array.isArray(input.genericMultiValues)) return input.genericMultiValues.slice();
       return splitMultiValue(raw);
     }
     if (fieldType === "number") {
@@ -70,6 +71,7 @@
   function applyInputValue(input, value) {
     if (input.dataset.fieldType === "multi_select") {
       var selected = splitMultiValue(value);
+      input.genericMultiValues = selected.slice();
       input.value = selected.join("、");
       var row = input.closest ? input.closest(".nrow") : null;
       if (row) {

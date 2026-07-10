@@ -604,20 +604,20 @@ current_version_id: v1 stroke-v1
 
 ### Phase 5: stroke-v1専用処理の整理
 
-状態: 着手中。
+状態: 通常画面ランタイムの撤去は実装済み。サーバ側の `stroke-v1` 読み取り・検証は履歴、旧version閲覧、rollback、互換テストのため維持する。
 
 対象:
 
-- `stroke-v1` 専用描画の削除検討
-- `field-meta.js` 固定ラベルのschema側移行
-- `copy-format.js` 固定出力の縮小
+- 通常画面の `stroke-v1` 専用描画を削除済み
+- `copy-format.js` の旧固定出力分岐を削除済み
+- `field-meta.js` は管理画面の旧形式表示用として維持
 
 方針:
 
 - 新規テンプレート追加は `generic-v1` 固定とする
 - `stroke-v1` は旧バージョン・ロールバック・既存DB互換のため当面残す
-- 通常画面の主経路は `generic-v1` とし、`stroke-v1` 専用描画は互換用として段階的に縮小する
-- `field-meta.js` の固定ラベルは `generic-v1` ではschema側ラベルを優先し、旧 `stroke-v1` 互換処理に限定して使う
+- 通常画面の主経路は `generic-v1` / `generic-v2` とし、`stroke-v1` 専用描画は持たない
+- `field-meta.js` の固定ラベルは通常画面では読み込まず、管理画面の旧 `stroke-v1` 互換処理に限定して使う
 - `copy_format_json` は文字列行を維持しつつ、行オブジェクトで空欄時の行省略を扱う
 - 既存stroke項目だけを入力した場合は、移行前の `stroke-v1` コピー出力と文字列一致させる
 
@@ -646,7 +646,7 @@ current_version_id: v1 stroke-v1
 
 ### Phase 6: 脳卒中共通テンプレート追加
 
-状態: 実装済み。DB初期化時のマイグレーション `006` で、`neuro_common` を `generic-v1` テンプレートとして追加する。
+状態: 実装済み。DB初期化時のマイグレーション `006` で追加し、`010` / `011` / `013` で `generic-v2` の正典定義へ収束する。
 
 含めた範囲:
 
@@ -662,7 +662,48 @@ current_version_id: v1 stroke-v1
 - 排泄
 - 治療
 
-`multi_select` と `number` は使用する。条件分岐、状況グループ、派生出力は含めない。
+`multi_select` と `number` を使用する。条件分岐は `generic-v2` の `visibleIf` / `requiredIf` / `showIf` で対応済み。状況グループは未実装。
+
+### Phase 7: 慢性硬膜下血腫テンプレート追加
+
+状態: 実装済み。DB初期化時のマイグレーション `012` で、`chronic_subdural` を `generic-v2` テンプレートとして追加する。
+
+含めた範囲:
+
+- バイタル
+- 神経所見
+- 症状
+- ドレーン
+- 内服
+- 安静度
+
+麻痺ありの場合のMMT、ドレーンありの場合の排液量・性状などは `visibleIf` で条件表示する。
+
+### Phase 8: 派生出力
+
+状態: 実装済み。`copy_format.format = "multi-v1"` として、複数の名前付きコピー形式を同一テンプレート内に持てる。
+
+形式:
+
+```json
+{
+  "format": "multi-v1",
+  "variants": [
+    { "id": "progress", "label": "経過記録用", "lines": ["{{basic.status}}"] },
+    { "id": "summary", "label": "サマリ用", "lines": ["{{basic.procedure}}"] }
+  ]
+}
+```
+
+仕様:
+
+- `text-v1` と後方互換で併存する
+- 各variantの `lines` は `text-v1` と同じ行定義を使う
+- 参照検証は全variantに対して行う
+- 未参照警告は「全variantに出ないfield」と「特定variantに出ないfield」を分けて返す
+- 通常画面ではコピー出力モーダルでvariantを選択する
+- 選択中variantに含まれない入力済みfieldはコピー前警告にする
+- 高リスク検出はvariant削除・variant内行削除を検出する
 
 ## 13. テスト方針
 

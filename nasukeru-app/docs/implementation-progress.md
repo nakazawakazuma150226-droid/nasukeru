@@ -1,5 +1,53 @@
 # ナスケル 段階実装進捗
 
+## Roadmap Update: Authoring / Content / Cleanup / Derived Output
+
+Status: PASS
+
+Base: `501105b`
+
+Implemented:
+
+- migration / setup unification:
+  - integrated former `010` / `011` template fix paths into `server/init_db.py`
+  - removed separate `prepare_db.py` and `template_fixes_010/011` scripts
+  - added migration `013` to reconcile existing databases with canonical built-in definitions
+- Simple Authoring improvements:
+  - Simple condition builder supports straightforward `visibleIf` / `requiredIf` editing
+  - Developer Mode supports direct JSON editing for schema and copy_format
+  - preview uses the shared generic renderer path
+- Discovery Management:
+  - admin APIs and UI manage quick templates, search keywords, and template groups
+  - routing uses explicit `target` objects for `template` and `group`
+- Content:
+  - added `chronic_subdural` as a `generic-v2` built-in template via migration `012`
+  - quick template and search keyword routes include chronic subdural entries
+- Legacy cleanup:
+  - removed the normal screen `stroke-v1` fixed rendering path
+  - removed the normal screen fixed stroke copy branch
+  - kept server-side `stroke-v1` validation/read compatibility for old versions, rollback, and compatibility tests
+  - widened local write guard from `/api/templates...` POSTs to all non-safe `/api/` methods
+- Derived output:
+  - added `copy_format.format = "multi-v1"` with named variants
+  - copy modal can switch output variants
+  - selected variant warns when filled fields are not included in that output
+  - backend validates references and reports both global and variant-specific unreferenced fields
+  - high-risk detection covers variant deletion and line changes
+
+Tests:
+
+- Python compile PASS
+- JS syntax check PASS
+- copy renderer unit test PASS
+- generic value unit test PASS
+- condition engine unit test PASS
+- safety rules unit test PASS
+- smoke test PASS
+
+Gate:
+
+- PASS for roadmap items through derived output Phase 5.1
+
 ## Phase 0: 開発基準線の固定
 
 Status: PASS

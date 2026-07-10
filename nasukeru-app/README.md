@@ -27,8 +27,13 @@ nasukeru-app/
   css/
     styles.css
   docs/
+    external-review-brief.md
     handoff.md
     variable-template-migration-design.md
+    implementation-progress.md
+    legacy-cleanup-inventory.md
+    baseline.md
+    nasukeru-review.md
   js/
     templates.js
     field-meta.js
@@ -76,6 +81,10 @@ SQLite DB
 - `server/nasukeru.db` はローカル生成物なのでGitには入れない
 - Flaskは必要な静的ファイルだけをルート定義して配信するホワイトリスト方式にしている
 - 配信対象は `index.html`, `assets/`, `css/`, `js/` で、`server/` や `.gitignore` へのルートは定義しない
+
+## 外部レビュー用ドキュメント
+
+外部にレビューを依頼する場合は、まず [docs/external-review-brief.md](docs/external-review-brief.md) を共有してください。設計の入口、現在の実装範囲、直近コミットの要約、重点レビュー観点、検証コマンドをまとめています。
 
 ## 各ファイルの役割
 
